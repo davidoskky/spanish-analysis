@@ -115,7 +115,7 @@ def generate_and_adjust_households(
         tmp = generate_households_by_size(
             region_weights, int(region_weights["Population"].sum())
         )
-        regions = tmp["Region"].values
+        regions = tmp[REGION_COLUMN_NAME].values
         household_sizes = tmp["Household_Size"].values
 
     n = len(regions)
