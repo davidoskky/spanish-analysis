@@ -340,7 +340,6 @@ def _extract_income(eff: pd.DataFrame) -> pd.DataFrame:
 
 
 def _extract_business(eff: pd.DataFrame) -> pd.DataFrame:
-    # Business assets by category
     business_df = (
         eff[eff["Element"] == "BUSINESSES RELATED TO SELF-EMPLOYMENT"]
         .loc[:, ["Category", "Value"]]
@@ -459,6 +458,23 @@ def generate_eff_group_stats(eff: pd.DataFrame) -> pd.DataFrame:
         raise RuntimeError(f"Pivot missing expected group_stats cols: {missing}")
 
     return pivot[group_cols].copy()
+
+
+def load_eff_income_map(income_csv: str = "eff_incomedata.csv") -> Dict[str, float]:
+    """
+    Read the EFF income dataset and return a mapping from wealth‐percentile
+    category (lowercased) → mean income (€) from 2022.
+    """
+    df = pd.read_csv(income_csv)
+    mask = (
+        df["breakdown"].str.upper().eq("NET WEALTH PERCENTILE")
+        & df["estadistico"].str.upper().eq("MEAN")
+        & (df["wave"] == 2022)
+    )
+    df = df.loc[mask, ["category", "value"]].copy()
+    df["category"] = df["category"].str.strip().str.lower()
+    df["value"] = pd.to_numeric(df["value"], errors="coerce") * 1000
+    return dict(zip(df["category"], df["value"]))
 
 
 # ────────────────────────────────────────────────────────────
