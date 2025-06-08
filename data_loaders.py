@@ -260,6 +260,13 @@ def load_revenue_data(
     return rev
 
 
+def _load_raw_population(pop_path):
+    df = pd.read_csv(pop_path)
+    df["Province"] = df["Region"].str.replace(r"^\d+\s+", "", regex=True).map(_norm)
+    df["Region"] = df["Province"].map(PROVINCE_TO_REGION)
+    return df
+
+
 def load_population_data(
     pop_path: str | Path,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -278,9 +285,7 @@ def load_population_data(
         Columns ['Region', 'Population'] where Population sums to 1.0.
     """
     # —— Revenue ——————————————————————————
-    pop = pd.read_csv(pop_path)
-    pop["Region"] = pop["Region"].str.replace(r"^\d+\s+", "", regex=True).map(_norm)
-    pop["Autonomous_Region"] = pop["Region"].map(PROVINCE_TO_REGION)
+    pop = _load_raw_population(pop_path)
 
     dropped = pop["Autonomous_Region"].isna().sum()
     unmapped_mask = pop["Autonomous_Region"].isna()

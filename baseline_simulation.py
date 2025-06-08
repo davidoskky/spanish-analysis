@@ -1,13 +1,16 @@
-import pandas as pd
-import numpy as np
-import random
 import logging
-import unicodedata
+import random
+
+import numpy as np
+import pandas as pd
+from scipy.stats import pareto
+
 
 from data_loaders import (
     load_eff_data,
     load_population_data,
     generate_eff_group_stats,
+    _load_raw_population,
 )
 from synthetic_data import generate_and_adjust_households, generate_households_by_size
 
@@ -48,41 +51,7 @@ def reweight_to_match_percentile_shares(
     return df_copy
 
 
-def calculate_population_over_30(pop_file):
-    df = pd.read_csv(pop_file)
-    df["Region"] = df["Region"].str.replace(r"^\d+\s+", "", regex=True)
-    df["Region"] = df["Region"].apply(
-        lambda x: unicodedata.normalize("NFKD", x.strip())
-        .encode("ascii", errors="ignore")
-        .decode("utf-8")
-        .lower()
-    )
-
-    province_to_region = {
-        "madrid": "madrid",
-        "madrid, comunidad de": "madrid",
-        "barcelona": "catalonia",
-        "girona": "catalonia",
-        "lleida": "catalonia",
-        "tarragona": "catalonia",
-        "cataluna": "catalonia",
-        "valencia/valencia": "valencia",
-        "alicante/alacant": "valencia",
-        "castellon/castello": "valencia",
-        "comunitat valenciana": "valencia",
-        "coruna, a": "galicia",
-        "lugo": "galicia",
-        "ourense": "galicia",
-        "pontevedra": "galicia",
-        "asturias, principado de": "asturias",
-        "asturias": "asturias",
-        "caceres": "extremadura",
-        "badajoz": "extremadura",
-    }
-
-    df["Autonomous_Region"] = df["Region"].map(province_to_region)
-    df = df[df["Autonomous_Region"].notna()].copy()
-
+def calculate_population_over_30(pop_path):
     over_30_bins = [
         "30-34",
         "35-39",
@@ -93,6 +62,9 @@ def calculate_population_over_30(pop_file):
         "60-64",
         "65+",
     ]
+
+    df = _load_raw_population(pop_path)
+    df = df.dropna(subset=["Region"])
     df = df[df["Age Bin"].isin(over_30_bins)]
 
     region_pop = df.groupby("Autonomous_Region")["Population"].sum()
@@ -104,10 +76,10 @@ def calculate_population_over_30(pop_file):
         "asturias",
         "extremadura",
     ]
+
     total_population = region_pop.loc[
         region_pop.index.intersection(selected_regions)
     ].sum()
-
     print(f" Estimated population over 30 in selected regions: {total_population:,.0f}")
     return total_population
 
@@ -184,9 +156,6 @@ def share_in_top_percentile(df, value_col, weight_col, top_pct=0.01):
     return (
         top_weighted_value / total_weighted_value if total_weighted_value > 0 else 0.0
     )
-
-
-from scipy.stats import pareto
 
 
 def calibrate_top_wealth_share_dual(
