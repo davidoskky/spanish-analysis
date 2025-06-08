@@ -6,10 +6,10 @@ import unicodedata
 
 from data_loaders import (
     load_eff_data,
-    process_eff_assets_income,
     load_population_and_revenue_data,
     generate_eff_group_stats,
 )
+from synthetic_data import generate_and_adjust_households, generate_households_by_size
 
 np.random.seed(42)
 random.seed(42)
@@ -110,32 +110,6 @@ def calculate_population_over_30(pop_file):
 
     print(f" Estimated population over 30 in selected regions: {total_population:,.0f}")
     return total_population
-
-
-def generate_households_by_size(region_weights_df, total_households, rng_seed=42):
-    rng = np.random.default_rng(rng_seed)
-    size_probs = [0.25, 0.35, 0.20, 0.15, 0.05]  # adjust or load per-region
-
-    region_weights_df = region_weights_df.copy()
-    region_weights_df["Num_Households"] = (
-        (region_weights_df["Population"] * total_households).round().astype(int)
-    )
-
-    # Fix rounding error
-    diff = total_households - region_weights_df["Num_Households"].sum()
-    if diff != 0:
-        idx = region_weights_df["Num_Households"].idxmax()
-        region_weights_df.loc[idx, "Num_Households"] += diff
-
-    household_rows = []
-    for _, row in region_weights_df.iterrows():
-        region = row["Region"]
-        n_households = row["Num_Households"]
-        sizes = rng.choice([1, 2, 3, 4, 5], size=n_households, p=size_probs)
-        for size in sizes:
-            household_rows.append((region, size))
-
-    return pd.DataFrame(household_rows, columns=["Region", "Household_Size"])
 
 
 def compute_region_targets(region_weights, total_households):
@@ -297,155 +271,6 @@ def calibrate_top_wealth_share_dual(
     print(f"Top 10% Net Wealth Share: {top10_share:.2%}")
 
     return df
-
-
-def expand_households_to_individuals(
-    df, base_threshold=800_000, max_split=5, rng_seed=42
-):
-    """
-    Expands households into individual-level tax units based on wealth.
-
-    Wealthy households are split into multiple individuals with uneven asset shares.
-    Less wealthy households remain single-individual.
-
-    Parameters:
-        df (DataFrame): Household-level data with at least Net_Wealth, Weight, Region, etc.
-        base_threshold (float): Wealth level at which to start splitting.
-        max_split (int): Max individuals to split any household into.
-        rng_seed (int): Random seed.
-
-    Returns:
-        DataFrame: Row-per-individual with scaled wealth/income/etc.
-    """
-    rng = np.random.default_rng(rng_seed)
-    df = df.copy()
-
-    if "Original_ID" not in df.columns:
-        df["Original_ID"] = df.index
-    if "Household_Size" not in df.columns:
-        df["Household_Size"] = 1
-    if "Weight" not in df.columns:
-        df["Weight"] = 1.0
-
-    monetary_cols = [
-        "Total_Assets",
-        "Debts",
-        "Real_Assets",
-        "Financial_Assets",
-        "Business_Assets",
-        "Income",
-        "Net_Wealth",
-    ]
-
-    individual_rows = []
-
-    for idx, row in df.iterrows():
-        wealth = row.get("Net_Wealth", 0)
-        if wealth > base_threshold:
-            expected_units = np.clip((wealth - base_threshold) / 5e5, 1, max_split)
-            n_units = int(np.clip(rng.poisson(lam=expected_units), 1, max_split))
-        else:
-            n_units = 1
-
-        bias = np.linspace(2.0, 1.0, num=n_units)
-        ratios = rng.dirichlet(bias)
-
-        for j in range(n_units):
-            new_row = row.copy()
-            for col in monetary_cols:
-                if col in new_row:
-                    new_row[col] *= ratios[j]
-            new_row["Weight"] *= ratios[j]
-            new_row["Tax_Unit_ID"] = j + 1
-            new_row["Split_From"] = row["Original_ID"]
-            individual_rows.append(new_row)
-
-    result_df = pd.DataFrame(individual_rows)
-    return result_df
-
-
-def generate_and_adjust_households(
-    stats_by_group, region_weights, income_data_file, household_sizes=None, regions=None
-):
-    if regions is None or household_sizes is None:
-        total_households = region_weights["Num_Households"].sum()
-        household_df = generate_households_by_size(region_weights, total_households)
-        regions = household_df["Region"].values
-        household_sizes = household_df["Household_Size"].values
-
-    total_households = len(regions)
-
-    # 1. Create base DataFrame
-    wealth_ranks = np.linspace(0.0001, 1.0, total_households)
-    categories = pd.cut(
-        wealth_ranks,
-        bins=[0, 0.3, 0.55, 0.75, 0.9, 1.0],
-        labels=[
-            "under 25",
-            "between 25 and 50",
-            "between 50 and 75",
-            "between 75 and 90",
-            "between 90 and 100",
-        ],
-        include_lowest=True,
-    ).astype(str)
-
-    df = pd.DataFrame(
-        {
-            "Region": regions,
-            "Wealth_Rank": wealth_ranks,
-            "Category": categories,
-            "Household_Size": household_sizes,
-        }
-    )
-
-    # 2. Merge stats + noise
-    df = df.merge(stats_by_group, on="Category", how="left")
-    df.dropna(subset=["Total_Assets"], inplace=True)
-    np.random.seed(42)
-    df["Total_Assets"] *= np.random.normal(1.0, 0.05, len(df))
-
-    mid_mask = (df["Wealth_Rank"] > 0.3) & (df["Wealth_Rank"] <= 0.9)
-    df.loc[mid_mask, "Total_Assets"] *= np.random.normal(1.0, 0.15, mid_mask.sum())
-
-    bot_mask = df["Wealth_Rank"] <= 0.5
-    df.loc[bot_mask, "Total_Assets"] *= np.random.normal(1.2, 0.25, bot_mask.sum())
-
-    # 3. Construct other components
-    df["Business_Assets"] = df.get("Business_Assets", 0.0)
-    if df["Business_Assets"].isna().all() and "Business_Asset_Ratio" in df.columns:
-        df["Business_Assets"] = df["Total_Assets"] * df["Business_Asset_Ratio"]
-    df["Business_Assets"] = df["Business_Assets"].fillna(0.0)
-    df["Debts"] = df["Total_Assets"] * df["Debt_Ratio"]
-    df["Net_Wealth"] = df["Total_Assets"] - df["Debts"]
-    df["Net_Wealth"] = df["Net_Wealth"].clip(lower=7000)
-    df["Total_Assets"] = df["Net_Wealth"] + df["Debts"]
-    df["Real_Assets"] = df["Total_Assets"] * df["Real_Asset_Ratio"]
-    df["Financial_Assets"] = df["Total_Assets"] * df["Financial_Asset_Ratio"]
-
-    # 4. Assign income
-    income_data = pd.read_csv(income_data_file)
-    income_data = income_data[
-        (income_data["element"].str.contains("TOTAL INCOME", case=False))
-        & (income_data["breakdown"] == "NET WEALTH PERCENTILE")
-        & (income_data["estadistico"].str.upper() == "MEAN")
-        & (income_data["wave"] == 2022)
-    ]
-    income_map = dict(
-        zip(
-            income_data["category"].str.strip().str.lower(), income_data["value"] * 1000
-        )
-    )
-    df["Income"] = df["Category"].map(
-        lambda cat: np.random.normal(
-            max(1, income_map.get(cat, 0)), 0.05 * max(1, income_map.get(cat, 0))
-        )
-    )
-
-    # 5. Expand to individuals (replaces previous two-step split + explode)
-    df_individuals = expand_households_to_individuals(df, base_threshold=1_000_000)
-
-    return df_individuals, df[["Original_ID", "Household_Size"]]
 
 
 def assign_declarant_weights(df):
