@@ -64,7 +64,7 @@ def generate_households_by_size(
     records = []
     for _, row in df.iterrows():
         sizes = rng.choice([1, 2, 3, 4, 5], size=row["Num_Households"], p=size_probs)
-        records.extend([(row["Region"], s) for s in sizes])
+        records.extend([(row[REGION_COLUMN_NAME], s) for s in sizes])
 
     return pd.DataFrame(records, columns=["Region", "Household_Size"])
 
