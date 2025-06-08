@@ -8,6 +8,7 @@ from data_loaders import (
     load_eff_data,
     process_eff_assets_income,
     load_population_and_revenue_data,
+    generate_eff_group_stats,
 )
 
 np.random.seed(42)
@@ -976,8 +977,7 @@ def main():
 
         # === LOAD DATA ===
         base_population = calculate_population_over_30(POP_FILE)
-        eff_df = load_eff_data(STATS_FILE)
-        _, group_stats = process_eff_assets_income(eff_df)
+        group_stats = generate_eff_group_stats(load_eff_data(STATS_FILE))
         revenue_df, region_weights = load_population_and_revenue_data(POP_FILE)
 
         # === SYNTHETIC HOUSEHOLD GENERATION ===

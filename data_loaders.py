@@ -18,20 +18,31 @@ import numpy as np
 # CONSTANTS
 # ────────────────────────────────────────────────────────────
 EFF_COLUMNS = [
-    "Concept", "Element", "Statistic", "Breakdown",
-    "Category", "Measure", "Wave", "Value"
+    "Concept",
+    "Element",
+    "Statistic",
+    "Breakdown",
+    "Category",
+    "Measure",
+    "Wave",
+    "Value",
 ]
 
 REAL_ASSETS = [
-    "MAIN RESIDENCE", "OTHER REAL ESTATE PROPERTIES",
-    "CARS AND OTHER VEHICLES", "OTHER DURABLE GOODS"
+    "MAIN RESIDENCE",
+    "OTHER REAL ESTATE PROPERTIES",
+    "CARS AND OTHER VEHICLES",
+    "OTHER DURABLE GOODS",
 ]
 FIN_ASSETS = [
-    "LISTED SHARES", "INVESTMENT FUNDS", "FIXED-INCOME SECURITIES",
+    "LISTED SHARES",
+    "INVESTMENT FUNDS",
+    "FIXED-INCOME SECURITIES",
     "PENSION SCHEMES AND UNIT-LINKED OR MIXED LIFE INSURANCE",
     "ACCOUNTS AND DEPOSITS USABLE FOR PAYMENTS",
     "ACCOUNTS NON USABLE FOR PAYMENTS AND HOUSE-PURCHASE SAVING ACCOUNTS",
-    "OTHER FINANCIAL ASSETS", "UNLISTED SHARES AND OTHER EQUITY"
+    "OTHER FINANCIAL ASSETS",
+    "UNLISTED SHARES AND OTHER EQUITY",
 ]
 DEBTS = ["TOTAL DEBT"]
 
@@ -141,7 +152,6 @@ PROVINCE_TO_REGION: dict[str, str] = {
 }
 
 
-
 # ────────────────────────────────────────────────────────────
 # HELPERS
 # ────────────────────────────────────────────────────────────
@@ -188,84 +198,39 @@ def load_eff_data(
     return df.loc[mask].copy()
 
 
-# ────────────────────────────────────────────────────────────
-# 2.  AGGREGATION ░░ process_eff_assets_income ░░
-# ────────────────────────────────────────────────────────────
-def process_eff_assets_income(
-    eff_filtered: pd.DataFrame,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Transform row-level EFF into:
-    • pivot_df      – every wealth-percentile ‘Category’ with full asset break-down
-    • group_stats   – tidy subset used by the synthetic-population generator
-    """
-    expected = set(REAL_ASSETS + FIN_ASSETS + DEBTS)
-    missing = expected.difference(eff_filtered["Element"].unique())
+def _validate_eff_elements(eff: pd.DataFrame) -> None:
+    required = set(REAL_ASSETS + FIN_ASSETS + DEBTS)
+    missing = required - set(eff["Element"].unique())
     if missing:
-        raise ValueError(f"EFF file missing elements: {sorted(missing)}")
+        raise ValueError(f"EFF data missing elements: {missing}")
 
-    pv = (
-        eff_filtered.pivot_table(
-            index="Category",
-            columns="Element",
-            values="Value",
-            aggfunc="mean",
-        )
-        .fillna(0)
-    )
 
-    pv["Real_Assets"] = pv[REAL_ASSETS].sum(1)
-    pv["Financial_Assets"] = pv[FIN_ASSETS].sum(1)
+def _pivot_eff_assets(eff: pd.DataFrame) -> pd.DataFrame:
+    return eff.pivot_table(
+        index="Category",
+        columns="Element",
+        values="Value",
+        aggfunc="mean",
+    ).fillna(0)
+
+
+def _compute_totals(pv: pd.DataFrame) -> pd.DataFrame:
+    pv["Real_Assets"] = pv[REAL_ASSETS].sum(axis=1)
+    pv["Financial_Assets"] = pv[FIN_ASSETS].sum(axis=1)
     pv["Total_Assets"] = pv["Real_Assets"] + pv["Financial_Assets"]
-    pv["Debts"] = pv[DEBTS].sum(1)
+    pv["Debts"] = pv[DEBTS].sum(axis=1)
     pv["Net_Wealth"] = pv["Total_Assets"] - pv["Debts"]
-
-    # Ratios (guard against division by zero)
-    denom = pv["Total_Assets"].replace(0, np.nan)
-    pv["Real_Asset_Ratio"] = pv["Real_Assets"] / denom
-    pv["Financial_Asset_Ratio"] = pv["Financial_Assets"] / denom
-    pv["Debt_Ratio"] = pv["Debts"] / denom
-
-    # Income & business assets
-    income = (
-        eff_filtered[eff_filtered["Concept"].str.contains("income", case=False)]
-        .loc[:, ["Category", "Value"]]
-        .rename(columns={"Value": "Mean_Income"})
-        .assign(Mean_Income=lambda d: d["Mean_Income"] * 1000)
-    )
-    business = (
-        eff_filtered[eff_filtered["Element"] == "BUSINESSES RELATED TO SELF-EMPLOYMENT"]
-        .loc[:, ["Category", "Value"]]
-        .rename(columns={"Value": "Business_Assets"})
-    )
-
-    pv = (
-        pv.reset_index()
-        .merge(income, on="Category", how="left")
-        .merge(business, on="Category", how="left")
-        .fillna({"Business_Assets": 0.0})
-    )
-    pv["Business_Asset_Ratio"] = pv["Business_Assets"] / denom
-    pv["Category"] = pv["Category"].map(_norm)
-
-    group_cols = [
-        "Category",
-        "Total_Assets",
-        "Debts",
-        "Net_Wealth",
-        "Real_Asset_Ratio",
-        "Financial_Asset_Ratio",
-        "Debt_Ratio",
-        "Mean_Income",
-        "Business_Assets",
-        "Business_Asset_Ratio",
-    ]
-    return pv, pv[group_cols]
+    return pv
 
 
-# ────────────────────────────────────────────────────────────
-# 3.  POPULATION & REVENUE ░░ load_population_and_revenue_data ░░
-# ────────────────────────────────────────────────────────────
+def _compute_ratios(pv: pd.DataFrame) -> pd.DataFrame:
+    total = pv["Total_Assets"].replace(0, np.nan)
+    pv["Real_Asset_Ratio"] = pv["Real_Assets"] / total
+    pv["Financial_Asset_Ratio"] = pv["Financial_Assets"] / total
+    pv["Debt_Ratio"] = pv["Debts"] / total
+    return pv
+
+
 def load_population_and_revenue_data(
     pop_path: str | Path,
     revenue_path: str | Path = "Cleaned_Regional_Wealth_Tax_Data.csv",
@@ -274,7 +239,10 @@ def load_population_and_revenue_data(
     # —— Revenue ——————————————————————————
     rev = (
         pd.read_csv(revenue_path)
-        .query("Variable.str.strip().str.lower() == 'resultado de la declaración'", engine="python")
+        .query(
+            "Variable.str.strip().str.lower() == 'resultado de la declaración'",
+            engine="python",
+        )
         .rename(columns={"Importe": "Total_Revenue"})
         .assign(Region=lambda d: d["Region"].str.strip().str.lower())
         .loc[:, ["Region", "Total_Revenue"]]
@@ -305,12 +273,152 @@ def load_population_and_revenue_data(
     return rev, weights
 
 
+def _extract_income(eff: pd.DataFrame) -> pd.DataFrame:
+    """
+      • income_df   – columns [Category, Mean_Income]
+      • business_df – columns [Category, Business_Assets]
+
+    Assumes eff["Value"] is already in full‐euro units.
+    """
+    # Mean income by category
+    income_df = (
+        eff[eff["Concept"].str.contains("income", case=False)]
+        .loc[:, ["Category", "Value"]]
+        .rename(columns={"Value": "Mean_Income"})
+    )
+    return income_df
+
+
+def _extract_business(eff: pd.DataFrame) -> pd.DataFrame:
+    # Business assets by category
+    business_df = (
+        eff[eff["Element"] == "BUSINESSES RELATED TO SELF-EMPLOYMENT"]
+        .loc[:, ["Category", "Value"]]
+        .rename(columns={"Value": "Business_Assets"})
+    )
+
+    return business_df
+
+
+def _merge_income_business(
+    pivot: pd.DataFrame,
+    income_df: pd.DataFrame,
+    business_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Left‐join the small income_df and business_df back onto the pivot table.
+
+    Input:
+      pivot       – DataFrame with index Category, plus all asset columns
+      income_df   – [Category, Mean_Income]
+      business_df – [Category, Business_Assets]
+
+    Output:
+      DataFrame reset to a 0..n index, with new columns:
+        • Mean_Income
+        • Business_Assets (filled with 0 where missing)
+    """
+    merged = (
+        pivot.reset_index()  # bring Category back as a column
+        .merge(income_df, on="Category", how="left")
+        .merge(business_df, on="Category", how="left")
+        .fillna({"Business_Assets": 0.0})
+    )
+    return merged
+
+
+def _compute_business_ratio(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute Business_Asset_Ratio = Business_Assets / Total_Assets
+    Safely handles Total_Assets == 0 by turning those ratios into NaN.
+    """
+    denom = df["Total_Assets"].replace(0, np.nan)
+    df["Business_Asset_Ratio"] = df["Business_Assets"] / denom
+    return df
+
+
+def generate_eff_pivot_df(eff: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build the full “pivot_df” of asset breakdown by Category.
+
+    Output schema (columns):
+      • Category                 (str)  – wealth percentile label
+      • <every EFF Element>            – one column per Element, e.g.
+        – MAIN RESIDENCE
+        – OTHER REAL ESTATE PROPERTIES
+        – … etc …
+      • Real_Assets              (float)
+      • Financial_Assets         (float)
+      • Total_Assets             (float)
+      • Debts                    (float)
+      • Net_Wealth               (float)
+      • Real_Asset_Ratio         (float)
+      • Financial_Asset_Ratio    (float)
+      • Debt_Ratio               (float)
+      • Mean_Income              (float)
+      • Business_Assets          (float)
+      • Business_Asset_Ratio     (float)
+    """
+    _validate_eff_elements(eff)
+    pivot = _pivot_eff_assets(eff)
+    pivot = _compute_totals(pivot)
+    pivot = _compute_ratios(pivot)
+    income_df = _extract_income(eff)
+    business_df = _extract_business(eff)
+    pivot = _merge_income_business(pivot, income_df, business_df)
+    pivot = _compute_business_ratio(pivot)
+    pivot["Category"] = pivot["Category"].map(_norm)
+
+    return pivot
+
+
+def generate_eff_group_stats(eff: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build the “group_stats” table for the synthetic-population generator.
+
+    This is just a subset of generate_eff_pivot_df’s columns:
+
+      • Category
+      • Total_Assets
+      • Debts
+      • Net_Wealth
+      • Real_Asset_Ratio
+      • Financial_Asset_Ratio
+      • Debt_Ratio
+      • Mean_Income
+      • Business_Assets
+      • Business_Asset_Ratio
+    """
+    pivot = generate_eff_pivot_df(eff)
+
+    group_cols = [
+        "Category",
+        "Total_Assets",
+        "Debts",
+        "Net_Wealth",
+        "Real_Asset_Ratio",
+        "Financial_Asset_Ratio",
+        "Debt_Ratio",
+        "Mean_Income",
+        "Business_Assets",
+        "Business_Asset_Ratio",
+    ]
+    # sanity check
+    missing = set(group_cols) - set(pivot.columns)
+    if missing:
+        raise RuntimeError(f"Pivot missing expected group_stats cols: {missing}")
+
+    return pivot[group_cols].copy()
+
+
 # ────────────────────────────────────────────────────────────
 # Smoke-test – run `python load.py` to see basic shapes
 # ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     eff_rows = load_eff_data().shape[0]
-    _, grp = process_eff_assets_income(load_eff_data())
+    pivot_df = generate_eff_group_stats(load_eff_data())
+    grp = generate_eff_group_stats(load_eff_data())
+
     print(f"EFF rows kept: {eff_rows}")
     print("group_stats preview:")
     print(grp.head())
