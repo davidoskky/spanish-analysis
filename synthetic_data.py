@@ -261,6 +261,6 @@ def build_population(
         region_weights,
         income_data_path,
         household_sizes=hh_meta["Household_Size"].values,
-        regions=hh_meta["Region"].values,
+        regions=hh_meta[REGION_COLUMN_NAME].values,
     )
     return individuals, lookup
