@@ -11,8 +11,12 @@ load_population_and_revenue_data(pop_path,
 
 from pathlib import Path
 import unicodedata
+from typing import Sequence
+
 import pandas as pd
 import numpy as np
+
+from constants import REGIONS_TO_ANALYZE
 
 # ────────────────────────────────────────────────────────────
 # CONSTANTS
@@ -232,32 +236,45 @@ def _compute_ratios(pv: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_revenue_data(
-    revenue_path: str | Path = "Cleaned_Regional_Wealth_Tax_Data.csv",
+    revenue_path: Path | str = "Cleaned_Regional_Wealth_Tax_Data.csv",
+    regions: Sequence[str] = REGIONS_TO_ANALYZE,
 ) -> pd.DataFrame:
     """
-    Load AEAT revenue data for wealth tax.
+    Load and filter AEAT wealth‐tax revenue by region.
 
-    Filters to rows where Variable == 'resultado de la declaración',
-    cleans column names, and returns:
-      - Region (lowercase)
-      - Total_Revenue (numeric)
+    1. Reads the CSV.
+    2. Keeps only rows where Variable == 'resultado de la declaración'.
+    3. Renames 'Importe' → 'Total_Revenue' and coerces to numeric.
+    4. Normalises 'Region' to lowercase ASCII.
+    5. Filters to the specified analysis regions.
 
     Returns
     -------
-    pd.DataFrame
-        Columns ['Region', 'Total_Revenue']
+    DataFrame
+        Columns:
+          - Region        (str)   lowercase region name
+          - Total_Revenue (float) wealth‐tax revenue
     """
-    rev = (
-        pd.read_csv(revenue_path)
-        .query(
-            "Variable.str.strip().str.lower() == 'resultado de la declaración'",
-            engine="python",
-        )
-        .rename(columns={"Importe": "Total_Revenue"})
-        .assign(Region=lambda d: d["Region"].str.strip().str.lower())
-        .loc[:, ["Region", "Total_Revenue"]]
+    df = pd.read_csv(revenue_path)
+
+    # 1. Filter for the correct 'Variable'
+    mask = df["Variable"].str.strip().str.lower() == "resultado de la declaración"
+    df = df.loc[mask, :]
+
+    # 2. Clean & rename columns
+    df = df.loc[:, ["Region", "Importe"]].rename(columns={"Importe": "Total_Revenue"})
+
+    df["Total_Revenue"] = (
+        df["Total_Revenue"]
+        .astype(str)
+        .str.replace(".", "", regex=False)  # remove thousands sep
+        .str.replace(",", ".", regex=False)  # convert decimal comma
     )
-    return rev
+    df["Total_Revenue"] = pd.to_numeric(df["Total_Revenue"], errors="coerce")
+    df["Region"] = df["Region"].str.strip().str.lower()
+    df = df.loc[df["Region"].isin(regions), :].reset_index(drop=True)
+
+    return df
 
 
 def _load_raw_population(pop_path):

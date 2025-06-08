@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import pareto
 
-from constants import BRACKETS_BY_REGION, DEFAULT_BRACKETS
+from constants import BRACKETS_BY_REGION, DEFAULT_BRACKETS, REGIONS_TO_ANALYZE
 from data_loaders import (
     load_eff_data,
     load_population_data,
@@ -68,17 +68,9 @@ def calculate_population_over_30(pop_path):
     df = df[df["Age Bin"].isin(over_30_bins)]
 
     region_pop = df.groupby("Autonomous_Region")["Population"].sum()
-    selected_regions = [
-        "madrid",
-        "catalonia",
-        "valencia",
-        "galicia",
-        "asturias",
-        "extremadura",
-    ]
 
     total_population = region_pop.loc[
-        region_pop.index.intersection(selected_regions)
+        region_pop.index.intersection(REGIONS_TO_ANALYZE)
     ].sum()
     print(f" Estimated population over 30 in selected regions: {total_population:,.0f}")
     return total_population

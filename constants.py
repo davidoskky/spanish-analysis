@@ -1,3 +1,12 @@
+REGIONS_TO_ANALYZE = [
+    "madrid",
+    "catalonia",
+    "valencia",
+    "galicia",
+    "asturias",
+    "extremadura",
+]
+
 DEFAULT_BRACKETS = [
     (167_129.45, 0.002),
     (334_252.88, 0.003),
