@@ -19,7 +19,7 @@ from data_loaders import (
     _load_raw_population,
     load_revenue_data,
 )
-from synthetic_data import generate_and_adjust_households, generate_households_by_size
+from synthetic_data import build_population
 
 np.random.seed(42)
 random.seed(42)
@@ -678,16 +678,12 @@ def main():
         region_weights = load_population_data(POP_FILE)
 
         # === SYNTHETIC HOUSEHOLD GENERATION ===
-        household_meta = generate_households_by_size(region_weights, TOTAL_HOUSEHOLDS)
-        regions = household_meta[REGION_COLUMN_NAME].values
-        household_sizes = household_meta["Household_Size"].values
-
-        individuals, household_sizes_lookup = generate_and_adjust_households(
+        individuals, household_sizes_lookup = build_population(
             group_stats,
             region_weights,
             INCOME_FILE,
-            household_sizes=household_sizes,
-            regions=regions,
+            TOTAL_HOUSEHOLDS,
+            seed=42,
         )
 
         assert "Household_Size" in individuals.columns, "❌ Household_Size missing."

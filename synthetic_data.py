@@ -31,42 +31,38 @@ from constants import REGION_COLUMN_NAME
 
 
 def generate_households_by_size(
-    region_weights_df: pd.DataFrame, total_households: int, rng_seed: int = 42
+    region_weights: pd.DataFrame,
+    total_households: int,
+    size_probs=None,
+    rng_seed: int = 42,
 ) -> pd.DataFrame:
     """
-    Allocate a total number of households across regions by population share,
-    then randomly draw each household’s size (1–5 persons).
-
-    Parameters
-    ----------
-    region_weights_df : DataFrame
-        Columns ['Region', 'Population'] giving each region’s share of the total.
-    total_households : int
-        How many households to simulate overall.
-    rng_seed : int
-        Random seed for reproducibility.
+    For each region, draw Num_Households = round(pop_share*total_households),
+    then sample a household size for each.
 
     Returns
     -------
-    DataFrame
+        DataFrame
         One row per household, columns ['Region', 'Household_Size'].
     """
+    if size_probs is None:
+        size_probs = [0.25, 0.35, 0.20, 0.15, 0.05]
+    people_per_household = len(size_probs)
     rng = np.random.default_rng(rng_seed)
-    size_probs = [0.25, 0.35, 0.20, 0.15, 0.05]  # for sizes 1..5
-
-    df = region_weights_df.copy()
+    df = region_weights.copy()
     df["Num_Households"] = (df["Population"] * total_households).round().astype(int)
     diff = total_households - df["Num_Households"].sum()
     if diff:
-        idx = df["Num_Households"].idxmax()
-        df.at[idx, "Num_Households"] += diff
+        df.loc[df["Num_Households"].idxmax(), "Num_Households"] += diff
 
-    records = []
-    for _, row in df.iterrows():
-        sizes = rng.choice([1, 2, 3, 4, 5], size=row["Num_Households"], p=size_probs)
-        records.extend([(row[REGION_COLUMN_NAME], s) for s in sizes])
+    rows = []
+    for region, group in df.iterrows():
+        sizes = rng.choice(
+            range(1, people_per_household), size=group.Num_Households, p=size_probs
+        )
+        rows += [(region, sz) for sz in sizes]
 
-    return pd.DataFrame(records, columns=[REGION_COLUMN_NAME, "Household_Size"])
+    return pd.DataFrame(rows, columns=[REGION_COLUMN_NAME, "Household_Size"])
 
 
 def generate_and_adjust_households(
