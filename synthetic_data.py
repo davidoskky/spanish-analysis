@@ -27,6 +27,8 @@ This module provides:
 import numpy as np
 import pandas as pd
 
+from constants import REGION_COLUMN_NAME
+
 
 def generate_households_by_size(
     region_weights_df: pd.DataFrame, total_households: int, rng_seed: int = 42
