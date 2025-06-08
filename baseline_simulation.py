@@ -4,10 +4,21 @@ import random
 import logging
 import unicodedata
 
+from data_loaders import (
+    load_eff_data,
+    process_eff_assets_income,
+    load_population_and_revenue_data,
+)
+
 np.random.seed(42)
 random.seed(42)
 logging.basicConfig(level=logging.INFO)
 
+# --- Set paths & constants -----------------------------------------------
+POP_FILE   = "Regional_Age_Bin_Population_Shares.csv"
+EFF_FILE   = "eff_data.xlsx"
+OUT_FILE   = "mini_sim.csv"
+N_HH       = 20_000          # start small
 
 
 def reweight_to_match_percentile_shares(dataframe, value_col="Net_Wealth", weight_col="Weight", percentiles=10):
