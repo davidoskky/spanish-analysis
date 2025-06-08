@@ -95,36 +95,6 @@ def compute_region_targets(region_weights, total_households):
     return region_targets
 
 
-def scale_region_shares_to_population(
-    region_weights_df, simulated_population, avg_household_size=2.5
-):
-    """
-    Scales region shares to household counts based on a simulated target population size.
-
-    Parameters:
-        region_weights_df (pd.DataFrame): Must contain 'Region' and 'Population' columns (as share of total).
-        simulated_population (int): Target simulated population size (not total population).
-        avg_household_size (float): Average household size (default = 2.5).
-
-    Returns:
-        pd.DataFrame with added 'Num_Households' column.
-    """
-    df = region_weights_df.copy()
-    total_households = int(round(simulated_population / avg_household_size))
-    df["Num_Households"] = (df["Population"] * total_households).round().astype(int)
-
-    # Adjust rounding mismatch
-    diff = total_households - df["Num_Households"].sum()
-    if diff != 0:
-        idx = df["Num_Households"].idxmax()
-        df.loc[idx, "Num_Households"] += diff
-
-    print("📌 Computed Num_Households from scaled population:")
-    print(df[["Region", "Num_Households"]])
-
-    return df
-
-
 def recalculate_wealth_ranks(df, value_col="Net_Wealth", weight_col="Final_Weight"):
     df = df[df[value_col] >= 0].copy()
     df = df.sort_values(by=value_col, ascending=False)
