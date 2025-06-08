@@ -1,3 +1,7 @@
+# Dataframe Columns
+
+REGION_COLUMN_NAME = "Region"
+
 REGIONS_TO_ANALYZE = [
     "madrid",
     "catalonia",

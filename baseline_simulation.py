@@ -5,12 +5,18 @@ import numpy as np
 import pandas as pd
 from scipy.stats import pareto
 
-from constants import BRACKETS_BY_REGION, DEFAULT_BRACKETS, REGIONS_TO_ANALYZE
+from constants import (
+    BRACKETS_BY_REGION,
+    DEFAULT_BRACKETS,
+    REGIONS_TO_ANALYZE,
+    REGION_COLUMN_NAME,
+)
 from data_loaders import (
     load_eff_data,
     load_population_data,
     generate_eff_group_stats,
     _load_raw_population,
+    load_revenue_data,
 )
 from synthetic_data import generate_and_adjust_households, generate_households_by_size
 
@@ -64,10 +70,10 @@ def calculate_population_over_30(pop_path):
     ]
 
     df = _load_raw_population(pop_path)
-    df = df.dropna(subset=["Region"])
+    df = df.dropna(subset=[REGION_COLUMN_NAME])
     df = df[df["Age Bin"].isin(over_30_bins)]
 
-    region_pop = df.groupby("Autonomous_Region")["Population"].sum()
+    region_pop = df.groupby(REGION_COLUMN_NAME)["Population"].sum()
 
     total_population = region_pop.loc[
         region_pop.index.intersection(REGIONS_TO_ANALYZE)
@@ -115,7 +121,7 @@ def calibrate_top_wealth_share_dual(
     rng = np.random.default_rng(seed)
     dfs = []
 
-    for region, subdf in df.groupby("Region"):
+    for region, subdf in df.groupby(REGION_COLUMN_NAME):
         subdf = subdf.sort_values("Total_Assets", ascending=False).reset_index(
             drop=True
         )
@@ -204,7 +210,7 @@ def get_personal_exemption(region):
 
 
 def compute_total_exemption(row):
-    personal_exemption = get_personal_exemption(row["Region"])
+    personal_exemption = get_personal_exemption(row[REGION_COLUMN_NAME])
     primary_exempt = min(row.get("Adj_Real_Assets", 0), 300_000)
     return personal_exemption + primary_exempt + row.get("Business_Exemption", 0.0)
 
@@ -406,7 +412,7 @@ def run_tax_simulation(df):
     df.loc[eligible, "Business_Exemption"] = df.loc[eligible, "Business_Assets"]
 
     df["Primary_Residence_Exempt"] = df["Adj_Real_Assets"].clip(upper=300_000)
-    df["Personal_Exemption"] = df["Region"].apply(get_personal_exemption)
+    df["Personal_Exemption"] = df[REGION_COLUMN_NAME].apply(get_personal_exemption)
 
     reclass_mask = df["Business_Asset_Ratio"] > 0.2
     df["Business_Reclass"] = 0.0
@@ -455,12 +461,16 @@ def run_tax_simulation(df):
 
     df["Taxable_Wealth_Baseline"] = df["Taxable_Wealth"]
     df["Wealth_Tax_Baseline"] = df.apply(
-        lambda row: calculate_ip_tax(row["Taxable_Wealth_Baseline"], row["Region"]),
+        lambda row: calculate_ip_tax(
+            row["Taxable_Wealth_Baseline"], row[REGION_COLUMN_NAME]
+        ),
         axis=1,
     )
     df["Weighted_Wealth_Tax_Baseline"] = df["Wealth_Tax_Baseline"] * df["Final_Weight"]
     df["Wealth_Tax"] = df.apply(
-        lambda row: calculate_ip_tax(row["Taxable_Wealth_Eroded"], row["Region"]),
+        lambda row: calculate_ip_tax(
+            row["Taxable_Wealth_Eroded"], row[REGION_COLUMN_NAME]
+        ),
         axis=1,
     )
     df.loc[df["Dropout"] > 0, "Wealth_Tax"] = 0
@@ -482,7 +492,7 @@ def apply_baseline_behavioral_erosion(df: pd.DataFrame) -> pd.DataFrame:
     )
     df["Wealth_Tax_Baseline_Eroded"] = df.apply(
         lambda row: calculate_ip_tax(
-            row["Taxable_Wealth_Baseline_Eroded"], row["Region"]
+            row["Taxable_Wealth_Baseline_Eroded"], row[REGION_COLUMN_NAME]
         ),
         axis=1,
     )
@@ -518,7 +528,7 @@ def apply_region_multipliers(df, multipliers, recompute=True):
     """
 
     df = df.copy()
-    all_regions = df["Region"].unique()
+    all_regions = df[REGION_COLUMN_NAME].unique()
 
     # Validation for required ratio columns
     required_ratios = ["Debt_Ratio", "Real_Asset_Ratio", "Financial_Asset_Ratio"]
@@ -534,7 +544,7 @@ def apply_region_multipliers(df, multipliers, recompute=True):
                 f"⚠️ Warning: No scaling multiplier found for region '{region}'. Using default factor 1.0."
             )
         factor = multipliers.get(region, 1.0)
-        mask = df["Region"] == region
+        mask = df[REGION_COLUMN_NAME] == region
 
         # Scale total assets
         df.loc[mask, "Total_Assets"] *= factor
@@ -577,10 +587,9 @@ def apply_region_multipliers(df, multipliers, recompute=True):
 def scale_final_weights_by_taxpayer_counts(df, region_targets_quota):
     df = df.copy()
     df["Final_Weight"] = 0.0
-    df["Region"] = df["Region"].str.strip().str.lower()
 
     for region, target_count in region_targets_quota.items():
-        mask = (df["Region"] == region) & (df["Is_Taxpayer"] == 1)
+        mask = (df[REGION_COLUMN_NAME] == region) & (df["Is_Taxpayer"] == 1)
         regional_declarants = df[mask]
 
         if regional_declarants.empty:
@@ -599,39 +608,24 @@ def scale_final_weights_by_taxpayer_counts(df, region_targets_quota):
 
 
 def compare_to_observed(households_df: pd.DataFrame) -> pd.DataFrame:
-    observed_df = pd.read_csv("Cleaned_Regional_Wealth_Tax_Data.csv")
-
-    observed_clean = observed_df[
-        observed_df["Variable"].str.strip().str.lower() == "resultado de la declaración"
-    ].copy()
-    observed_clean["Region"] = observed_clean["Region"].str.strip().str.lower()
-
-    observed_clean["Total_Revenue"] = (
-        observed_clean["Importe"]
-        .astype(str)
-        .str.replace(".", "", regex=False)
-        .str.replace(",", ".", regex=False)
-    )
-    observed_clean["Total_Revenue"] = pd.to_numeric(
-        observed_clean["Total_Revenue"], errors="coerce"
-    )
-    observed_clean = observed_clean[["Region", "Total_Revenue"]]
+    observed_clean = load_revenue_data("Cleaned_Regional_Wealth_Tax_Data.csv")
 
     df = households_df.copy()
-    df["Region"] = df["Region"].str.strip().str.lower()
-    df = df[df["Region"] != "madrid"]
+    df = df[df[REGION_COLUMN_NAME] != "madrid"]
 
     df = df[df["Is_Taxpayer"] == True]
     df["Weighted_Wealth_Tax"] = df["Wealth_Tax"] * df["Final_Weight"]
 
-    actual_region_revenue = df.groupby("Region", as_index=False)[
+    actual_region_revenue = df.groupby(REGION_COLUMN_NAME, as_index=False)[
         "Weighted_Wealth_Tax"
     ].sum()
     actual_region_revenue.rename(
         columns={"Weighted_Wealth_Tax": "Simulated_Actual_Revenue"}, inplace=True
     )
 
-    merged = pd.merge(actual_region_revenue, observed_clean, on="Region", how="left")
+    merged = pd.merge(
+        actual_region_revenue, observed_clean, on=REGION_COLUMN_NAME, how="left"
+    )
     merged["Gap_%"] = (
         100
         * (merged["Simulated_Actual_Revenue"] - merged["Total_Revenue"])
@@ -645,7 +639,7 @@ def compare_to_observed(households_df: pd.DataFrame) -> pd.DataFrame:
     totals = pd.DataFrame(
         [
             {
-                "Region": "TOTAL",
+                REGION_COLUMN_NAME: "TOTAL",
                 "Simulated_Actual_Revenue": total_sim,
                 "Total_Revenue": total_obs,
                 "Gap_%": f"{total_gap_pct:.2f}%",
@@ -692,7 +686,7 @@ def main():
 
         # === SYNTHETIC HOUSEHOLD GENERATION ===
         household_meta = generate_households_by_size(region_weights, TOTAL_HOUSEHOLDS)
-        regions = household_meta["Region"].values
+        regions = household_meta[REGION_COLUMN_NAME].values
         household_sizes = household_meta["Household_Size"].values
 
         individuals, household_sizes_lookup = generate_and_adjust_households(

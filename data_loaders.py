@@ -16,7 +16,7 @@ from typing import Sequence
 import pandas as pd
 import numpy as np
 
-from constants import REGIONS_TO_ANALYZE
+from constants import REGIONS_TO_ANALYZE, REGION_COLUMN_NAME
 
 # ────────────────────────────────────────────────────────────
 # CONSTANTS
@@ -256,31 +256,30 @@ def load_revenue_data(
           - Total_Revenue (float) wealth‐tax revenue
     """
     df = pd.read_csv(revenue_path)
-
-    # 1. Filter for the correct 'Variable'
     mask = df["Variable"].str.strip().str.lower() == "resultado de la declaración"
     df = df.loc[mask, :]
-
-    # 2. Clean & rename columns
-    df = df.loc[:, ["Region", "Importe"]].rename(columns={"Importe": "Total_Revenue"})
-
+    df = df.loc[:, [REGION_COLUMN_NAME, "Importe"]].rename(
+        columns={"Importe": "Total_Revenue"}
+    )
     df["Total_Revenue"] = (
         df["Total_Revenue"]
         .astype(str)
-        .str.replace(".", "", regex=False)  # remove thousands sep
-        .str.replace(",", ".", regex=False)  # convert decimal comma
+        .str.replace(".", "", regex=False)
+        .str.replace(",", ".", regex=False)
     )
     df["Total_Revenue"] = pd.to_numeric(df["Total_Revenue"], errors="coerce")
-    df["Region"] = df["Region"].str.strip().str.lower()
-    df = df.loc[df["Region"].isin(regions), :].reset_index(drop=True)
+    df[REGION_COLUMN_NAME] = df[REGION_COLUMN_NAME].str.strip().str.lower()
+    df = df.loc[df[REGION_COLUMN_NAME].isin(regions), :].reset_index(drop=True)
 
     return df
 
 
 def _load_raw_population(pop_path):
     df = pd.read_csv(pop_path)
-    df["Province"] = df["Region"].str.replace(r"^\d+\s+", "", regex=True).map(_norm)
-    df["Region"] = df["Province"].map(PROVINCE_TO_REGION)
+    df["Province"] = (
+        df[REGION_COLUMN_NAME].str.replace(r"^\d+\s+", "", regex=True).map(_norm)
+    )
+    df[REGION_COLUMN_NAME] = df[REGION_COLUMN_NAME].map(PROVINCE_TO_REGION)
     return df
 
 
@@ -304,20 +303,21 @@ def load_population_data(
     # —— Revenue ——————————————————————————
     pop = _load_raw_population(pop_path)
 
-    dropped = pop["Autonomous_Region"].isna().sum()
-    unmapped_mask = pop["Autonomous_Region"].isna()
+    dropped = pop[REGION_COLUMN_NAME].isna().sum()
+    unmapped_mask = pop[REGION_COLUMN_NAME].isna()
     if unmapped_mask.any():
-        missing_labels = pop.loc[unmapped_mask, "Region"].value_counts().sort_index()
+        missing_labels = (
+            pop.loc[unmapped_mask, REGION_COLUMN_NAME].value_counts().sort_index()
+        )
         print(f"⚠️  {dropped} province rows not mapped – ignored.")
         print("   Unmapped province names (with row counts):")
         for prov, count in missing_labels.items():
             print(f"     • {prov:25s} {count:>5}")
 
-    pop = pop.dropna(subset=["Autonomous_Region"])
+    pop = pop.dropna(subset=[REGION_COLUMN_NAME])
     weights = (
-        pop.groupby("Autonomous_Region", as_index=False)["Population"]
+        pop.groupby(REGION_COLUMN_NAME, as_index=False)["Population"]
         .sum()
-        .rename(columns={"Autonomous_Region": "Region"})
         .assign(Population=lambda d: d["Population"] / d["Population"].sum())
     )
 
