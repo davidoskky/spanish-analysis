@@ -84,17 +84,6 @@ def calculate_population_over_30(pop_path):
     return total_population
 
 
-def compute_region_targets(region_weights, total_households):
-    region_targets = {
-        row["Region"]: int(round(row["Population"] * total_households))
-        for _, row in region_weights.iterrows()
-    }
-    print("📌 Computed household targets by region:")
-    for region, count in region_targets.items():
-        print(f"  {region}: {count} households")
-    return region_targets
-
-
 def recalculate_wealth_ranks(df, value_col="Net_Wealth", weight_col="Final_Weight"):
     df = df[df[value_col] >= 0].copy()
     df = df.sort_values(by=value_col, ascending=False)
