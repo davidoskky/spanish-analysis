@@ -6,7 +6,7 @@ import unicodedata
 
 from data_loaders import (
     load_eff_data,
-    load_population_and_revenue_data,
+    load_population_data,
     generate_eff_group_stats,
 )
 from synthetic_data import generate_and_adjust_households, generate_households_by_size
@@ -787,6 +787,7 @@ def main():
     try:
         # === CONFIGURATION ===
         POP_FILE = "Regional_Age_Bin_Population_Shares.csv"
+        REVENUE_FILE = "Cleaned_Regional_Wealth_Tax_Data.csv"
         INCOME_FILE = "eff_incomedata.csv"
         STATS_FILE = "eff_data.xlsx"
         OUTPUT_FILE = "simulated_thesis.csv"
@@ -803,7 +804,7 @@ def main():
         # === LOAD DATA ===
         base_population = calculate_population_over_30(POP_FILE)
         group_stats = generate_eff_group_stats(load_eff_data(STATS_FILE))
-        revenue_df, region_weights = load_population_and_revenue_data(POP_FILE)
+        region_weights = load_population_data(POP_FILE)
 
         # === SYNTHETIC HOUSEHOLD GENERATION ===
         household_meta = generate_households_by_size(region_weights, TOTAL_HOUSEHOLDS)

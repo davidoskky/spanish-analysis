@@ -231,12 +231,22 @@ def _compute_ratios(pv: pd.DataFrame) -> pd.DataFrame:
     return pv
 
 
-def load_population_and_revenue_data(
-    pop_path: str | Path,
+def load_revenue_data(
     revenue_path: str | Path = "Cleaned_Regional_Wealth_Tax_Data.csv",
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Return (AEAT revenue, region-level population *share*)."""
-    # —— Revenue ——————————————————————————
+) -> pd.DataFrame:
+    """
+    Load AEAT revenue data for wealth tax.
+
+    Filters to rows where Variable == 'resultado de la declaración',
+    cleans column names, and returns:
+      - Region (lowercase)
+      - Total_Revenue (numeric)
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns ['Region', 'Total_Revenue']
+    """
     rev = (
         pd.read_csv(revenue_path)
         .query(
@@ -247,8 +257,27 @@ def load_population_and_revenue_data(
         .assign(Region=lambda d: d["Region"].str.strip().str.lower())
         .loc[:, ["Region", "Total_Revenue"]]
     )
+    return rev
 
-    # —— Population ——————————————————————
+
+def load_population_data(
+    pop_path: str | Path,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Load regional population shares (over-30) and map provinces to autonomous regions.
+
+    Steps:
+      1) Reads CSV with province-level population and age bins.
+      2) Normalises province names and maps to Autonomous_Region.
+      3) Drops unmapped provinces (with diagnostics printed).
+      4) Aggregates population by Autonomous_Region and normalises to shares.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns ['Region', 'Population'] where Population sums to 1.0.
+    """
+    # —— Revenue ——————————————————————————
     pop = pd.read_csv(pop_path)
     pop["Region"] = pop["Region"].str.replace(r"^\d+\s+", "", regex=True).map(_norm)
     pop["Autonomous_Region"] = pop["Region"].map(PROVINCE_TO_REGION)
@@ -270,7 +299,7 @@ def load_population_and_revenue_data(
         .assign(Population=lambda d: d["Population"] / d["Population"].sum())
     )
 
-    return rev, weights
+    return weights
 
 
 def _extract_income(eff: pd.DataFrame) -> pd.DataFrame:
@@ -423,5 +452,6 @@ if __name__ == "__main__":
     print("group_stats preview:")
     print(grp.head())
 
-    rev, w = load_population_and_revenue_data("Regional_Age_Bin_Population_Shares.csv")
+    rev = load_revenue_data()
+    w = load_population_data("Regional_Age_Bin_Population_Shares.csv")
     print("Revenue rows:", len(rev), " |  Region weights:", len(w))
