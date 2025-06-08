@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import pareto
 
-
+from constants import BRACKETS_BY_REGION, DEFAULT_BRACKETS
 from data_loaders import (
     load_eff_data,
     load_population_data,
@@ -279,64 +279,28 @@ def generate_tax_diagnostics(df):
     return diagnostics
 
 
-def calculate_ip_tax(base, region):
-    if region == "madrid":
-        return 0
-
-    brackets_by_region = {
-        "valencia": [
-            (167129.45, 0.0025),
-            (334252.88, 0.0035),
-            (668499.75, 0.0055),
-            (1336999.51, 0.0095),
-            (2673999.01, 0.0135),
-            (5347998.03, 0.0175),
-            (10695996.06, 0.0215),
-            (float("inf"), 0.035),
-        ],
-        "catalonia": [
-            (167129.45, 0.002),
-            (334252.88, 0.003),
-            (668499.75, 0.005),
-            (1336999.51, 0.009),
-            (2673999.01, 0.013),
-            (5347998.03, 0.017),
-            (10695996.06, 0.021),
-            (20000000.0, 0.0348),
-            (float("inf"), 0.0348),
-        ],
-        "galicia": [
-            (167129.45, 0.002),
-            (334252.88, 0.003),
-            (668499.75, 0.005),
-            (1336999.51, 0.009),
-            (2673999.01, 0.013),
-            (5347998.03, 0.017),
-            (10695996.06, 0.021),
-            (float("inf"), 0.035),
-        ],
-        "default": [
-            (167129.45, 0.002),
-            (334252.88, 0.003),
-            (668499.75, 0.005),
-            (1336999.51, 0.009),
-            (2673999.01, 0.013),
-            (5347998.03, 0.017),
-            (10695996.06, 0.021),
-            (float("inf"), 0.025),
-        ],
-    }
-    brackets = brackets_by_region.get(region, brackets_by_region["default"])
-    tax = 0
-    last_limit = 0
+def _compute_progressive_tax(base: float, brackets: list[tuple[float, float]]) -> float:
+    tax = 0.0
+    prev_limit = 0.0
     for limit, rate in brackets:
-        if base > limit:
-            tax += (limit - last_limit) * rate
-            last_limit = limit
-        else:
-            tax += (base - last_limit) * rate
+        slice_amount = min(base, limit) - prev_limit
+        if slice_amount <= 0:
             break
+        tax += slice_amount * rate
+        prev_limit = limit
     return tax
+
+
+def calculate_ip_tax(base: float, region: str) -> float:
+    """
+    Compute Spanish regional wealth tax on `base` for a given `region`.
+    Madrid is exempt (0). For others, use region‐specific progressive brackets.
+    """
+    if region.lower() == "madrid":
+        return 0.0
+
+    brackets = BRACKETS_BY_REGION.get(region.lower(), DEFAULT_BRACKETS)
+    return _compute_progressive_tax(base, brackets)
 
 
 def simulate_pit(income):
