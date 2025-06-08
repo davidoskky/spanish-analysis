@@ -276,16 +276,14 @@ def load_revenue_data(
 
 def _load_raw_population(pop_path):
     df = pd.read_csv(pop_path)
-    df["Province"] = (
+    df[REGION_COLUMN_NAME] = (
         df[REGION_COLUMN_NAME].str.replace(r"^\d+\s+", "", regex=True).map(_norm)
     )
     df[REGION_COLUMN_NAME] = df[REGION_COLUMN_NAME].map(PROVINCE_TO_REGION)
     return df
 
 
-def load_population_data(
-    pop_path: str | Path,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_population_data(pop_path: str | Path) -> pd.DataFrame:
     """
     Load regional population shares (over-30) and map provinces to autonomous regions.
 
@@ -315,6 +313,7 @@ def load_population_data(
             print(f"     • {prov:25s} {count:>5}")
 
     pop = pop.dropna(subset=[REGION_COLUMN_NAME])
+
     weights = (
         pop.groupby(REGION_COLUMN_NAME, as_index=False)["Population"]
         .sum()
@@ -477,3 +476,4 @@ if __name__ == "__main__":
     rev = load_revenue_data()
     w = load_population_data("Regional_Age_Bin_Population_Shares.csv")
     print("Revenue rows:", len(rev), " |  Region weights:", len(w))
+    print(w.head())
