@@ -55,3 +55,10 @@ BRACKETS_BY_REGION = {
         (float("inf"), 0.035),
     ],
 }
+REGION_TARGETS_QUOTA = {
+    "asturias": 3871,
+    "catalonia": 84867,
+    "extremadura": 1196,
+    "galicia": 8027,
+    "valencia": 26905,
+}

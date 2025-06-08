@@ -10,6 +10,7 @@ from constants import (
     DEFAULT_BRACKETS,
     REGIONS_TO_ANALYZE,
     REGION_COLUMN_NAME,
+    REGION_TARGETS_QUOTA,
 )
 from data_loaders import (
     load_eff_data,
@@ -670,14 +671,6 @@ def main():
         STATS_FILE = "eff_data.xlsx"
         OUTPUT_FILE = "simulated_thesis.csv"
         TOTAL_HOUSEHOLDS = 100_000
-
-        REGION_TARGETS_QUOTA = {
-            "asturias": 3871,
-            "catalonia": 84867,
-            "extremadura": 1196,
-            "galicia": 8027,
-            "valencia": 26905,
-        }
 
         # === LOAD DATA ===
         base_population = calculate_population_over_30(POP_FILE)
