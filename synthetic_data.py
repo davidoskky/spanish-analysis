@@ -135,7 +135,7 @@ def generate_and_adjust_households(
 
     hh = pd.DataFrame(
         {
-            "Region": regions,
+            REGION_COLUMN_NAME: regions,
             "Wealth_Rank": ranks,
             "Category": categories,
             "Household_Size": household_sizes,
