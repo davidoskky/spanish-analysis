@@ -586,20 +586,11 @@ def apply_region_multipliers(df, multipliers, recompute=True):
 
 
 def compare_to_observed(households_df: pd.DataFrame) -> pd.DataFrame:
-    MY_SIX_REGIONS = [
-        "catalonia",
-        "valencia",
-        "andalusia",
-        "galicia",
-        "asturias",
-        "madrid",
-    ]
-
     observed_clean = load_revenue_data("Cleaned_Regional_Wealth_Tax_Data.csv")
-    observed_clean = observed_clean[observed_clean[REGION_COLUMN_NAME].isin(MY_SIX_REGIONS)]
+    observed_clean = observed_clean[observed_clean[REGION_COLUMN_NAME].isin(REGIONS_TO_ANALYZE)]
 
     df = households_df.copy()
-    df = df[df[REGION_COLUMN_NAME].isin(MY_SIX_REGIONS)]
+    df = df[df[REGION_COLUMN_NAME].isin(REGIONS_TO_ANALYZE)]
     df = df[df["Is_Taxpayer"] == True]
     df["Weighted_Wealth_Tax"] = df["Wealth_Tax"] * df["Final_Weight"]
 
