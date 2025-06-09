@@ -9,6 +9,7 @@ df_eff = pd.concat(
         for i in range(1, 6)
     ]
 )
+df_eff["facine3"] /= 5  # Adjust weights to account for 5 implicates
 replace_dict = {
     "bage": {
         1: "Under 35",
@@ -75,3 +76,11 @@ median_renthog = (
     .mean()
 )
 print("Median: {:.2f}".format(median_renthog))
+print("riquezanet — basic stats:")
+print(df_eff['riquezanet'].describe(percentiles=[.25, .5, .75, .9, .99]))
+
+print("Total weighted households (facine3 sum):", df_eff["facine3"].sum())
+print("Number of observations:", len(df_eff))
+print("Average weight per household:", df_eff["facine3"].mean())
+print("Max weight:", df_eff["facine3"].max())
+print("Min weight:", df_eff["facine3"].min())

@@ -4,81 +4,56 @@ import numpy as np
 from dta_handling import df_eff
 from eff_typology import assign_typology
 
+np.random.seed(42)
+EPSILON = 1e-6
+
 # --- STEP 0: Assign typology ---
 df_eff = assign_typology(df_eff)
 
-# --- STEP 1: Construct 'main_residence' and 'dvivpral' ---
-df_eff['main_residence'] = df_eff['np2_1'].fillna(0)
+# --- STEP 1: Compute wealth rank and assign behavioral erosion ---
+df_eff['wealth_rank'] = df_eff['riquezanet'].rank(pct=True)
+percriq_map = {
+    "< P25": 1,
+    "P25-P50": 2,
+    "P50-P75": 3,
+    "P75-P90": 4,
+    "> P90": 5
+}
+df_eff['percriq'] = df_eff['percriq'].map(percriq_map)
+df_eff['percriq'] = pd.to_numeric(df_eff['percriq'], errors='coerce').fillna(0).astype(int)
 
-# Calculate total outstanding mortgage debt for primary residence
-df_eff['dvivpral'] = 0
-loan_vars = ['p2_12_1', 'p2_12_2', 'p2_12_3', 'p2_12_4']
-conditions = ['p2_8a']
 
-for i, var in enumerate(loan_vars, 1):
-    df_eff['dvivpral'] += df_eff.apply(
-        lambda row: row[var] if row.get('p2_8a', 0) >= i and pd.notna(row.get(var)) else 0,
-        axis=1
-    )
 
-# --- STEP 2: Simulate flat wealth tax with cap ---
-def simulate_wealth_tax(df, tax_threshold=1_000_000, tax_rate=0.01, income_cap_rate=0.6):
+# Behavioral erosion by wealth percentile group (percriq) and exact rank
+def assign_behavioral_erosion(row):
+    group = row.get("percriq", 0)
+    rank = row.get("wealth_rank", 0)
+
+    if group <= 2:
+        return 0.00
+    elif group == 3:
+        return 0.04
+    elif group == 4:
+        return 0.075
+    elif group == 5:
+        if rank > 0.999:
+            return 0.18
+        elif rank > 0.99:
+            return 0.12
+        else:
+            return 0.08
+    return 0.00
+
+df_eff['behavioral_erosion'] = df_eff.apply(assign_behavioral_erosion, axis=1)
+
+import numpy as np
+import pandas as pd
+
+# Redefine function after environment reset
+def simulate_wealth_tax(df, exemption=700_000, income_cap_rate=0.6):
     df = df.copy()
-    df['taxable_wealth'] = (df['riquezanet'] - tax_threshold).clip(lower=0)
-    df['sim_tax'] = df['taxable_wealth'] * tax_rate
-    df['max_tax_allowed'] = df['renthog21_eur22'] * income_cap_rate
-    df['final_tax'] = df[['sim_tax', 'max_tax_allowed']].min(axis=1)
-    df['cap_relief'] = df['sim_tax'] - df['final_tax']
-    return df
 
-df_eff = simulate_wealth_tax(df_eff)
-
-# --- STEP 3: Revenue summary ---
-def summarize_revenue(df):
-    return pd.Series({
-        'Revenue without cap': (df['sim_tax'] * df['facine3']).sum(),
-        'Revenue with cap': (df['final_tax'] * df['facine3']).sum(),
-        'Revenue lost due to cap': (df['cap_relief'] * df['facine3']).sum(),
-        'Share of households affected by cap':
-            df.loc[df['cap_relief'] > 0, 'facine3'].sum() / df['facine3'].sum()
-    })
-
-print("\nFlat tax simulation preview:")
-print(df_eff[['riquezanet', 'renthog21_eur22', 'sim_tax', 'final_tax', 'cap_relief']].head(10))
-print("\nFlat tax revenue summary:")
-print(summarize_revenue(df_eff).apply(lambda x: round(x, 2)))
-
-# --- STEP 4: Typology breakdown ---
-tax_by_typology = df_eff.groupby("mismatch_type").apply(
-    lambda x: pd.Series({
-        "Population share": x["facine3"].sum() / df_eff["facine3"].sum(),
-        "Revenue without cap": (x["sim_tax"] * x["facine3"]).sum(),
-        "Revenue with cap": (x["final_tax"] * x["facine3"]).sum(),
-        "Revenue lost due to cap": (x["cap_relief"] * x["facine3"]).sum(),
-        "Share of type benefiting from cap": (
-            x.loc[x["cap_relief"] > 0, "facine3"].sum() / x["facine3"].sum()
-        )
-    })
-)
-
-print("\nTax impact by mismatch type:")
-print(tax_by_typology.round(2))
-
-# --- STEP 5: Simulate actual Spanish progressive wealth tax ---
-def simulate_spanish_wealth_tax(df):
-    df = df.copy()
-    general_exemption = 700_000
-    main_residence_cap = 300_000
-
-    df['main_residence'] = pd.to_numeric(df['np2_1'], errors='coerce').fillna(0)
-    df['riquezanet'] = pd.to_numeric(df['riquezanet'], errors='coerce').fillna(0)
-    df['renthog21_eur22'] = pd.to_numeric(df['renthog21_eur22'], errors='coerce').fillna(0)
-    df['main_residence_exempt'] = df['main_residence'].clip(upper=main_residence_cap)
-
-    df['taxable_wealth'] = (
-        df['riquezanet'] - general_exemption - df['main_residence_exempt']
-    ).clip(lower=0)
-
+    # Define tax brackets (Spanish schedule)
     brackets = [
         (0, 167129, 0.002),
         (167129, 334253, 0.003),
@@ -100,26 +75,121 @@ def simulate_spanish_wealth_tax(df):
                 break
         return tax
 
-    df['sim_tax'] = df['taxable_wealth'].apply(compute_tax)
-    df['max_tax_allowed'] = df['renthog21_eur22'] * 0.6
+    # Retrieve exemptions if present
+    pension_assets = df['p2_71'].fillna(0) if 'p2_71' in df.columns else 0
+    main_residence_value = np.where(
+        df['np2_1'] == 'Ownership',
+        df['p2_70'].fillna(0),
+        0
+    ) if {'np2_1', 'p2_70'}.issubset(df.columns) else 0
+    family_business_assets = df['p2_69'].fillna(0) if 'p2_69' in df.columns else 0
+
+    # Compute net taxable wealth base
+    adjusted_base = df['riquezanet'] - pension_assets - main_residence_value - family_business_assets
+
+    # Apply general exemption
+    df['taxable_wealth'] = np.maximum(adjusted_base - exemption, 0)
+
+    # Apply erosion
+    df['taxable_wealth_eroded'] = df['taxable_wealth'] * (1 - df['behavioral_erosion'])
+
+    # Compute progressive tax
+    df['sim_tax'] = df['taxable_wealth_eroded'].apply(compute_tax)
+
+    # Apply income cap rule
+    df['max_tax_allowed'] = df['renthog21_eur22'] * income_cap_rate
     df['final_tax'] = df[['sim_tax', 'max_tax_allowed']].min(axis=1)
     df['cap_relief'] = df['sim_tax'] - df['final_tax']
 
     return df
 
-df_eff = simulate_spanish_wealth_tax(df_eff)
+df_eff = simulate_wealth_tax(df_eff)
 
-print("\nSpanish tax design preview:")
-print(df_eff[['riquezanet', 'main_residence', 'dvivpral', 'taxable_wealth', 'sim_tax', 'final_tax', 'cap_relief']].head(10))
-
-def summarize_spanish_tax_revenue(df):
+# --- STEP 3: Revenue summary ---
+def summarize_revenue(df):
     return pd.Series({
         'Revenue without cap': (df['sim_tax'] * df['facine3']).sum(),
         'Revenue with cap': (df['final_tax'] * df['facine3']).sum(),
         'Revenue lost due to cap': (df['cap_relief'] * df['facine3']).sum(),
         'Share of households affected by cap':
-            df.loc[df['cap_relief'] > 0, 'facine3'].sum() / df['facine3'].sum()
+    df.loc[df['cap_relief'] > EPSILON, 'facine3'].sum() / df['facine3'].sum()
     })
+print("\nFlat tax simulation preview:")
+print(df_eff[['riquezanet', 'renthog21_eur22', 'taxable_wealth', 'taxable_wealth_eroded',
+              'sim_tax', 'final_tax', 'cap_relief']].head(10))
+print("\nFlat tax revenue summary:")
+print(summarize_revenue(df_eff).apply(lambda x: round(x, 2)))
 
-print("\nSummary of revenue under Spanish wealth tax:")
-print(summarize_spanish_tax_revenue(df_eff).apply(lambda x: round(x, 2)))
+# --- STEP 3B: Adjust revenue for evasion and exemptions (counterfactual realism) ---
+
+# Assumptions based on academic literature (e.g., Durán-Cabré et al., Zucman, Alstadsæter):
+EVASION_RATE = 0.30            # 30% of taxable wealth evaded (undisclosed or offshore)
+UNDERVALUE_RATE = 0.15         # 15% undervaluation of assets, esp. real estate
+EXEMPTION_REDUCTION = 0.20     # 20% lost due to regional exemptions (e.g., family businesses, Madrid)
+
+# Total adjustment factor:
+adjustment_factor = (1 - EVASION_RATE) * (1 - UNDERVALUE_RATE) * (1 - EXEMPTION_REDUCTION)
+
+# Apply adjustment
+adjusted_revenue = summarize_revenue(df_eff)['Revenue with cap'] * adjustment_factor
+
+print("\n--- Adjusted Revenue Estimate ---")
+print(f"Adjusted Revenue (Realistic Collection): €{adjusted_revenue:,.2f}")
+print(f"↳ Assumes: {int(EVASION_RATE*100)}% evasion, {int(UNDERVALUE_RATE*100)}% undervaluation, "
+      f"{int(EXEMPTION_REDUCTION*100)}% exemption loss")
+
+
+# --- STEP 4: Typology breakdown ---
+tax_by_typology = df_eff.groupby("mismatch_type").apply(
+    lambda x: pd.Series({
+        "Population share": x["facine3"].sum() / df_eff["facine3"].sum(),
+        "Revenue without cap": (x["sim_tax"] * x["facine3"]).sum(),
+        "Revenue with cap": (x["final_tax"] * x["facine3"]).sum(),
+        "Revenue lost due to cap": (x["cap_relief"] * x["facine3"]).sum(),
+        "Share of type benefiting from cap": (
+    x.loc[x["cap_relief"] > EPSILON, "facine3"].sum() / x["facine3"].sum()
+)
+    })
+)
+
+print("\nTax impact by mismatch type:")
+print(tax_by_typology.round(2))
+
+# --- STEP 6: Migration attrition module ---
+MIGRATION_THRESHOLDS = {
+    "top_01": 0.999,
+    "top_1": 0.99,
+    "top_5": 0.95,
+}
+BASE_PROBABILITIES = {
+    "top_01": 0.08,
+    "top_1": 0.03,
+    "top_5": 0.009,
+}
+
+def compute_migration_probability(row):
+    p = row.get("wealth_rank", 0)
+    prob = 0.0
+    if p > MIGRATION_THRESHOLDS["top_01"]:
+        prob = BASE_PROBABILITIES["top_01"]
+    elif p > MIGRATION_THRESHOLDS["top_1"]:
+        prob = BASE_PROBABILITIES["top_1"]
+    elif p > MIGRATION_THRESHOLDS["top_5"]:
+        prob = BASE_PROBABILITIES["top_5"]
+
+    ratio = row.get("sim_tax", 0) / (row.get("taxable_wealth_eroded", 0) + 1e-6)
+    prob *= 1 + 2 * min(ratio, 0.02)
+
+    return min(prob, 1.0)
+
+def apply_migration_module(df):
+    df = df.copy()
+    df["Migration_Prob"] = df.apply(compute_migration_probability, axis=1)
+    df["Migration_Exit"] = np.random.rand(len(df)) < df["Migration_Prob"]
+
+    df.loc[df["Migration_Exit"], ["taxable_wealth_eroded", "sim_tax", "final_tax", "cap_relief"]] = 0.0
+
+    print(f"\U0001F3C3 Migration module applied: {df['Migration_Exit'].sum():,} individuals exited.")
+    return df
+
+df_eff = apply_migration_module(df_eff)
