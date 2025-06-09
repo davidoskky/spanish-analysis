@@ -28,37 +28,3 @@ summary_stats = df_eff.groupby("mismatch_type").apply(
 )
 print("\nAverage wealth and income by mismatch type:")
 print(summary_stats)
-
-
-# --- STEP 2: Tax Simulation ---
-def simulate_wealth_tax(df, tax_threshold=1_000_000, tax_rate=0.01, income_cap_rate=0.6):
-    df = df.copy()
-    df['taxable_wealth'] = (df['riquezanet'] - tax_threshold).clip(lower=0)
-    df['sim_tax'] = df['taxable_wealth'] * tax_rate
-    df['max_tax_allowed'] = df['renthog21_eur22'] * income_cap_rate
-    df['final_tax'] = df[['sim_tax', 'max_tax_allowed']].min(axis=1)
-    df['cap_relief'] = df['sim_tax'] - df['final_tax']
-    return df
-
-def summarize_revenue(df):
-    total_no_cap = (df['sim_tax'] * df['facine3']).sum()
-    total_with_cap = (df['final_tax'] * df['facine3']).sum()
-    total_lost = (df['cap_relief'] * df['facine3']).sum()
-    return pd.Series({
-        'Revenue without cap': total_no_cap,
-        'Revenue with cap': total_with_cap,
-        'Revenue lost due to cap': total_lost,
-        'Share of households affected by cap':
-            df.loc[df['cap_relief'] > 0, 'facine3'].sum() / df['facine3'].sum()
-    })
-
-# Run simulation
-df_eff = simulate_wealth_tax(df_eff)
-
-# Display result preview
-print("\nSimulated tax columns (first 10 rows):")
-print(df_eff[['riquezanet', 'renthog21_eur22', 'sim_tax', 'max_tax_allowed', 'final_tax', 'cap_relief']].head(10))
-
-# Show revenue summary
-print("\nSummary of revenue impact:")
-print(summarize_revenue(df_eff))
