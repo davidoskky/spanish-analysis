@@ -11,6 +11,7 @@ load_population_and_revenue_data(pop_path,
 
 from pathlib import Path
 import unicodedata
+from pprint import pprint
 from typing import Sequence
 
 import pandas as pd
@@ -481,9 +482,13 @@ def load_eff_income_map(income_csv: str = "eff_incomedata.csv") -> dict[str, flo
 # Smoke-test – run `python load.py` to see basic shapes
 # ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    pprint(load_eff_data())
     eff_rows = load_eff_data().shape[0]
     pivot_df = generate_eff_group_stats(load_eff_data())
     grp = generate_eff_group_stats(load_eff_data())
+
+    pprint(pivot_df)
+    pprint(pivot_df.columns)
 
     print(f"EFF rows kept: {eff_rows}")
     print("group_stats preview:")
