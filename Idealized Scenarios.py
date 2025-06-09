@@ -165,6 +165,7 @@ households["Wealth_Tax_Uniform"] = households["Taxable_Wealth_Uniform_Eroded"].a
 households["Weighted_Wealth_Tax_Uniform"] = households["Wealth_Tax_Uniform"] * households["Declarant_Weight"]
 uniform_revenue = households.groupby("Region")["Weighted_Wealth_Tax_Uniform"].sum().reset_index()
 uniform_revenue.columns = ["Region", "Uniform_Wealth_Tax_Revenue"]
+
 # === might delete later ==
 
 # Recreate top 1% group after all tax columns exist
