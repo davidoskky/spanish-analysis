@@ -542,7 +542,7 @@ def apply_region_multipliers(df, multipliers, recompute=True):
     for region in all_regions:
         if region not in multipliers:
             print(
-                f"⚠️ Warning: No scaling multiplier found for region '{region}'. Using default factor 1.0."
+                f" Warning: No scaling multiplier found for region '{region}'. Using default factor 1.0."
             )
         factor = multipliers.get(region, 1.0)
         mask = df[REGION_COLUMN_NAME] == region
@@ -568,7 +568,7 @@ def apply_region_multipliers(df, multipliers, recompute=True):
             if "Business_Asset_Ratio" in df.columns:
                 if df.loc[mask, "Business_Asset_Ratio"].isna().any():
                     print(
-                        f"⚠️ Warning: NaN values in 'Business_Asset_Ratio' for region '{region}'"
+                        f" Warning: NaN values in 'Business_Asset_Ratio' for region '{region}'"
                     )
                 df.loc[mask, "Business_Assets"] = (
                     df.loc[mask, "Total_Assets"] * df.loc[mask, "Business_Asset_Ratio"]
@@ -580,40 +580,26 @@ def apply_region_multipliers(df, multipliers, recompute=True):
                 df.loc[mask, "Business_Assets"] = 0.0
 
     df.reset_index(drop=True, inplace=True)
-    print("\n✅ Region multipliers applied. Preview of updated DataFrame:")
+    print("\n Region multipliers applied. Preview of updated DataFrame:")
     print(df.head())
     return df
 
 
-def scale_final_weights_by_taxpayer_counts(df, region_targets_quota):
-    df = df.copy()
-    df["Final_Weight"] = 0.0
-
-    for region, target_count in region_targets_quota.items():
-        mask = (df[REGION_COLUMN_NAME] == region) & (df["Is_Taxpayer"] == 1)
-        regional_declarants = df[mask]
-
-        if regional_declarants.empty:
-            print(f"⚠️ No taxpayers found in region '{region}', skipping.")
-            continue
-
-        total_weight = regional_declarants["Weight"].sum()
-        if total_weight == 0:
-            print(f"⚠️ Zero simulated taxpayer weight in region '{region}', skipping.")
-            continue
-
-        scaling_factor = target_count / total_weight
-        df.loc[mask, "Final_Weight"] = df.loc[mask, "Weight"] * scaling_factor
-
-    return df
-
-
 def compare_to_observed(households_df: pd.DataFrame) -> pd.DataFrame:
+    MY_SIX_REGIONS = [
+        "catalonia",
+        "valencia",
+        "andalusia",
+        "galicia",
+        "asturias",
+        "madrid",
+    ]
+
     observed_clean = load_revenue_data("Cleaned_Regional_Wealth_Tax_Data.csv")
+    observed_clean = observed_clean[observed_clean[REGION_COLUMN_NAME].isin(MY_SIX_REGIONS)]
 
     df = households_df.copy()
-    df = df[df[REGION_COLUMN_NAME] != "madrid"]
-
+    df = df[df[REGION_COLUMN_NAME].isin(MY_SIX_REGIONS)]
     df = df[df["Is_Taxpayer"] == True]
     df["Weighted_Wealth_Tax"] = df["Wealth_Tax"] * df["Final_Weight"]
 
@@ -651,6 +637,7 @@ def compare_to_observed(households_df: pd.DataFrame) -> pd.DataFrame:
     result = pd.concat([merged, totals], ignore_index=True)
     print("\n📊 Revenue Comparison with Observed:")
     print(result.to_string(index=False))
+
     return result
 
 
@@ -705,22 +692,9 @@ def main():
         taxed_individuals = run_tax_simulation(individuals)
         taxed_individuals = apply_baseline_behavioral_erosion(taxed_individuals)
 
-        # === POST-SIMULATION MERGES & ADJUSTMENTS ===
-        taxed_individuals = taxed_individuals.merge(
-            household_sizes_lookup, on="Original_ID", how="left"
-        )
-        if taxed_individuals["Household_Size"].isna().any():
-            raise ValueError("Household_Size merge failed after tax simulation.")
-
         # === FINAL SCALING ===
-        taxed_individuals = scale_final_weights_by_taxpayer_counts(
-            taxed_individuals, REGION_TARGETS_QUOTA
-        )
         taxed_individuals = recalculate_wealth_ranks(
             taxed_individuals, weight_col="Final_Weight"
-        )
-        taxed_individuals = finalize_weights(
-            taxed_individuals, normalization_target=base_population
         )
 
         # === REPORT & OUTPUT ===

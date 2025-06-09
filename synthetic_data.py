@@ -7,7 +7,7 @@ This module provides:
 
   • generate_households_by_size:
       Allocate total_households across regions and randomly assign
-      household sizes (1–5 persons).
+      household sizes (1–2 persons).
 
   • generate_and_adjust_households:
       Take those households, assign them wealth‐percentile categories,
@@ -28,7 +28,10 @@ import numpy as np
 import pandas as pd
 
 from constants import REGION_COLUMN_NAME
+<<<<<<< HEAD
 from data_loaders import load_eff_income_map
+=======
+>>>>>>> 2e2c4da (Add idealized scenarios and update baseline simulation)
 
 
 def generate_households_by_size(
@@ -47,7 +50,11 @@ def generate_households_by_size(
         One row per household, columns ['Region', 'Household_Size'].
     """
     if size_probs is None:
+<<<<<<< HEAD
         size_probs = [0.25, 0.35, 0.20, 0.15, 0.05]
+=======
+        size_probs = [0.30, 0.70]
+>>>>>>> 2e2c4da (Add idealized scenarios and update baseline simulation)
     people_per_household = len(size_probs)
     rng = np.random.default_rng(rng_seed)
     df = region_weights.copy()
@@ -163,7 +170,7 @@ def simulate_tax_unit_population(
 def expand_households_to_individuals(
     df: pd.DataFrame,
     base_threshold: float = 1_000_000,
-    max_split: int = 5,
+    max_split: int = 2,
     rng_seed: int = 42,
 ) -> pd.DataFrame:
     """
@@ -233,4 +240,8 @@ def build_population(
     individuals, lookup = simulate_tax_unit_population(
         stats_by_group, region_weights, income_lookup, total_households, seed=seed
     )
+<<<<<<< HEAD
     return individuals, lookup
+=======
+    return individuals, lookup
+>>>>>>> 2e2c4da (Add idealized scenarios and update baseline simulation)
