@@ -460,7 +460,7 @@ def generate_eff_group_stats(eff: pd.DataFrame) -> pd.DataFrame:
     return pivot[group_cols].copy()
 
 
-def load_eff_income_map(income_csv: str = "eff_incomedata.csv") -> Dict[str, float]:
+def load_eff_income_map(income_csv: str = "eff_incomedata.csv") -> dict[str, float]:
     """
     Read the EFF income dataset and return a mapping from wealth‐percentile
     category (lowercased) → mean income (€) from 2022.
