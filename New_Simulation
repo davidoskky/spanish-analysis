@@ -46,23 +46,77 @@ def assign_behavioral_erosion(row):
 
 df_eff['behavioral_erosion'] = df_eff.apply(assign_behavioral_erosion, axis=1)
 
-import numpy as np
-import pandas as pd
+def apply_individual_split(df):
+    df = df.copy()
 
-# Redefine function after environment reset
+    # Use total household size for wealth split
+    df["split_factor"] = pd.to_numeric(df["np1"], errors="coerce").clip(lower=1)
+
+    # For income-specific split, fallback if no earners
+    if "nnumadtrab" in df.columns:
+        earners = pd.to_numeric(df["nnumadtrab"], errors="coerce")
+        earners = earners.clip(lower=1).fillna(df["split_factor"])
+        df["income_split_factor"] = earners
+    else:
+        df["income_split_factor"] = df["split_factor"]
+
+    # Apply splits
+    df["riquezanet_individual"] = df["riquezanet"] / df["split_factor"]
+    df["renthog21_individual"] = df["renthog21_eur22"] / df["income_split_factor"]
+
+    return df
+
+# Apply individual split for households with multiple members
+df_eff = apply_individual_split(df_eff)
+print(df_eff[['np1', 'nnumadtrab', 'split_factor', 'income_split_factor']].drop_duplicates())
+
+# --- STEP 1B: Compute legal exemptions ---
+def compute_legal_exemptions(df):
+    split = df["split_factor"]
+
+    # --- Primary residence exemption (if owned) ---
+    is_home_exempt = df["np2_1"] == "Ownership"
+    home_exempt = np.where(is_home_exempt, df["p2_70"].fillna(0), 0) / split
+# Probabilistic business exemption (~30%, value taken from Duran-Cabré et al. 2023)
+    business_exemption_rate = 0.30
+    apply_business_exempt = np.random.rand(len(df)) < business_exemption_rate
+    business_exempt = np.where(apply_business_exempt, df["p2_69"].fillna(0), 0) / split
+
+    return home_exempt + business_exempt
+    
+# --- STEP 1C: Apply income cap ---
+def apply_income_cap(df, income_cap_rate=0.60, min_wt_share=0.20):
+    df = df.copy()
+
+    cap_threshold = df["renthog21_individual"] * income_cap_rate
+    wt = df["sim_tax"]
+
+    df["cap_applicable"] = wt > cap_threshold  # Flag
+
+    excess = wt - cap_threshold
+    max_relief = wt * (1 - min_wt_share)
+    relief = np.where(df["cap_applicable"], np.minimum(excess, max_relief), 0.0)
+
+    df["cap_relief"] = relief
+    df["final_tax"] = wt - relief
+
+    return df
+
+
+# --- STEP 2: Wealth tax simulation ---
 def simulate_wealth_tax(df, exemption=700_000, income_cap_rate=0.6):
     df = df.copy()
 
-    # Define tax brackets (Spanish schedule)
+    # --- Correct Brackets ---
     brackets = [
-        (0, 167129, 0.002),
-        (167129, 334253, 0.003),
-        (334253, 668500, 0.005),
-        (668500, 1337000, 0.009),
-        (1337000, 2676000, 0.013),
-        (2676000, 5347998, 0.017),
-        (5347998, 10695996, 0.021),
-        (10695996, float('inf'), 0.035),
+        (0, 167129.45, 0.002),
+        (167129.46, 334246.88, 0.003),
+        (334246.89, 668499.75, 0.005),
+        (668499.76, 1336999.51, 0.009),
+        (1336999.52, 2673999.01, 0.013),
+        (2673999.02, 5347998.03, 0.017),
+        (5347998.04, 10695996.06, 0.021),
+        (10695996.07, float('inf'), 0.025),
     ]
 
     def compute_tax(taxable):
@@ -75,85 +129,26 @@ def simulate_wealth_tax(df, exemption=700_000, income_cap_rate=0.6):
                 break
         return tax
 
-    # Retrieve exemptions if present
-    pension_assets = df['p2_71'].fillna(0) if 'p2_71' in df.columns else 0
-    main_residence_value = np.where(
-        df['np2_1'] == 'Ownership',
-        df['p2_70'].fillna(0),
-        0
-    ) if {'np2_1', 'p2_70'}.issubset(df.columns) else 0
-    family_business_assets = df['p2_69'].fillna(0) if 'p2_69' in df.columns else 0
+    # --- Exemptions (handled externally) ---
+    df["exempt_total"] = compute_legal_exemptions(df)
 
-    # Compute net taxable wealth base
-    adjusted_base = df['riquezanet'] - pension_assets - main_residence_value - family_business_assets
+    # --- Non-taxable components (excluded by design) ---
+    non_taxable_assets = (
+        df["p2_71"].fillna(0) +       # pension
+        df["timpvehic"].fillna(0)    # vehicles
+    ) / df["split_factor"]
 
-    # Apply general exemption
-    df['taxable_wealth'] = np.maximum(adjusted_base - exemption, 0)
+    # --- Adjusted Base (individual) ---
+    base = df["riquezanet_individual"] - non_taxable_assets - df["exempt_total"]
+    df["taxable_wealth"] = np.maximum(base - exemption, 0)
+    df["taxable_wealth_eroded"] = df["taxable_wealth"] * (1 - df["behavioral_erosion"])
+    df["sim_tax"] = df["taxable_wealth_eroded"].apply(compute_tax)
 
-    # Apply erosion
-    df['taxable_wealth_eroded'] = df['taxable_wealth'] * (1 - df['behavioral_erosion'])
-
-    # Compute progressive tax
-    df['sim_tax'] = df['taxable_wealth_eroded'].apply(compute_tax)
-
-    # Apply income cap rule
-    df['max_tax_allowed'] = df['renthog21_eur22'] * income_cap_rate
-    df['final_tax'] = df[['sim_tax', 'max_tax_allowed']].min(axis=1)
-    df['cap_relief'] = df['sim_tax'] - df['final_tax']
 
     return df
 
 df_eff = simulate_wealth_tax(df_eff)
-
-# --- STEP 3: Revenue summary ---
-def summarize_revenue(df):
-    return pd.Series({
-        'Revenue without cap': (df['sim_tax'] * df['facine3']).sum(),
-        'Revenue with cap': (df['final_tax'] * df['facine3']).sum(),
-        'Revenue lost due to cap': (df['cap_relief'] * df['facine3']).sum(),
-        'Share of households affected by cap':
-    df.loc[df['cap_relief'] > EPSILON, 'facine3'].sum() / df['facine3'].sum()
-    })
-print("\nFlat tax simulation preview:")
-print(df_eff[['riquezanet', 'renthog21_eur22', 'taxable_wealth', 'taxable_wealth_eroded',
-              'sim_tax', 'final_tax', 'cap_relief']].head(10))
-print("\nFlat tax revenue summary:")
-print(summarize_revenue(df_eff).apply(lambda x: round(x, 2)))
-
-# --- STEP 3B: Adjust revenue for evasion and exemptions (counterfactual realism) ---
-
-# Assumptions based on academic literature (e.g., Durán-Cabré et al., Zucman, Alstadsæter):
-EVASION_RATE = 0.30            # 30% of taxable wealth evaded (undisclosed or offshore)
-UNDERVALUE_RATE = 0.15         # 15% undervaluation of assets, esp. real estate
-EXEMPTION_REDUCTION = 0.20     # 20% lost due to regional exemptions (e.g., family businesses, Madrid)
-
-# Total adjustment factor:
-adjustment_factor = (1 - EVASION_RATE) * (1 - UNDERVALUE_RATE) * (1 - EXEMPTION_REDUCTION)
-
-# Apply adjustment
-adjusted_revenue = summarize_revenue(df_eff)['Revenue with cap'] * adjustment_factor
-
-print("\n--- Adjusted Revenue Estimate ---")
-print(f"Adjusted Revenue (Realistic Collection): €{adjusted_revenue:,.2f}")
-print(f"↳ Assumes: {int(EVASION_RATE*100)}% evasion, {int(UNDERVALUE_RATE*100)}% undervaluation, "
-      f"{int(EXEMPTION_REDUCTION*100)}% exemption loss")
-
-
-# --- STEP 4: Typology breakdown ---
-tax_by_typology = df_eff.groupby("mismatch_type").apply(
-    lambda x: pd.Series({
-        "Population share": x["facine3"].sum() / df_eff["facine3"].sum(),
-        "Revenue without cap": (x["sim_tax"] * x["facine3"]).sum(),
-        "Revenue with cap": (x["final_tax"] * x["facine3"]).sum(),
-        "Revenue lost due to cap": (x["cap_relief"] * x["facine3"]).sum(),
-        "Share of type benefiting from cap": (
-    x.loc[x["cap_relief"] > EPSILON, "facine3"].sum() / x["facine3"].sum()
-)
-    })
-)
-
-print("\nTax impact by mismatch type:")
-print(tax_by_typology.round(2))
+df_eff = apply_income_cap(df_eff)
 
 # --- STEP 6: Migration attrition module ---
 MIGRATION_THRESHOLDS = {
@@ -189,7 +184,75 @@ def apply_migration_module(df):
 
     df.loc[df["Migration_Exit"], ["taxable_wealth_eroded", "sim_tax", "final_tax", "cap_relief"]] = 0.0
 
-    print(f"\U0001F3C3 Migration module applied: {df['Migration_Exit'].sum():,} individuals exited.")
+    print(f" Migration module applied: {df['Migration_Exit'].sum():,} individuals exited.")
     return df
 
 df_eff = apply_migration_module(df_eff)
+
+
+# Assumptions based on academic literature (e.g., Durán-Cabré et al., Zucman, Alstadsæter):
+EVASION_RATE = 0.30           # 30% of taxable wealth evaded (undisclosed or offshore)
+UNDERVALUE_RATE = 0.15         # 15% undervaluation of assets, esp. real estate
+REGIONAL_REDUCTION = 0.33     # 33% lost due to regional exemptions (e.g., family businesses, Madrid)
+
+# Total adjustment factor:
+adjustment_factor = (1 - EVASION_RATE) * (1 - UNDERVALUE_RATE) * (1 - REGIONAL_REDUCTION)
+def apply_adjustments(df):
+    df = df.copy()
+    df["adjusted_taxable_wealth"] = df["taxable_wealth_eroded"] * adjustment_factor
+    df["adjusted_sim_tax"] = df["sim_tax"] * adjustment_factor
+    df["adjusted_final_tax"] = df["final_tax"] * adjustment_factor
+    df["adjusted_cap_relief"] = df["cap_relief"] * adjustment_factor
+
+    print(f" Adjustments applied: {df['adjusted_final_tax'].sum():,.2f} EUR total tax.")
+    return df
+
+df_eff = apply_adjustments(df_eff)
+
+# --- SUMMARY TABLE GENERATION ---
+def generate_summary_table(df, weight_col="facine3"):
+    revenue_collected = (df["final_tax"] * df[weight_col]).sum()
+    revenue_without_cap = (df["sim_tax"] * df[weight_col]).sum()
+    cap_relief = revenue_without_cap - revenue_collected
+
+    revenue_after_migration = (df["final_tax"] * (~df["Migration_Exit"]) * df[weight_col]).sum()
+    migration_loss = revenue_collected - revenue_after_migration
+
+    erosion_loss = (df["taxable_wealth"] - df["taxable_wealth_eroded"]) * df[weight_col]
+    erosion_total_loss = erosion_loss.sum()
+
+    return pd.DataFrame({
+        "Metric": [
+            "Revenue Collected (with cap)",
+            "Revenue Without Cap",
+            "Cap Relief (Revenue Lost)",
+            "Revenue After Migration",
+            "Migration Loss",
+            "Behavioral Erosion (Implicit Loss)",
+        ],
+        "EUR": [
+            revenue_collected,
+            revenue_without_cap,
+            cap_relief,
+            revenue_after_migration,
+            migration_loss,
+            erosion_total_loss,
+        ]
+    })
+
+# --- TYPOLOGY IMPACT TABLE ---
+def typology_impact_summary(df, weight_col="facine3"):
+    return df.groupby("mismatch_type").apply(
+        lambda g: pd.Series({
+            "Population Share": g[weight_col].sum() / df[weight_col].sum(),
+            "Avg Final Tax": np.average(g["final_tax"], weights=g[weight_col]),
+            "Avg Sim Tax": np.average(g["sim_tax"], weights=g[weight_col]),
+            "Cap Relief Share": (g["cap_relief"] > 1e-6).mean(),
+            "Migration Rate": g["Migration_Exit"].mean(),
+            "Total Revenue": (g["final_tax"] * g[weight_col]).sum()
+        })
+    ).reset_index()
+
+
+summary_table = generate_summary_table(df_eff)
+typology_table = typology_impact_summary(df_eff)
