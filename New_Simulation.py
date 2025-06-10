@@ -20,8 +20,6 @@ def assign_behavioral_erosion(row):
     group = row.get("percriq", 0)
     rank = row.get("wealth_rank", 0)
     
-    print(group)
-
     if group <= 2:
         return 0.00
     elif group == 3:
@@ -32,7 +30,7 @@ def assign_behavioral_erosion(row):
         if rank > 0.999:
             return 0.18
         elif rank > 0.99:
-            return 0.12
+            return 0.13
         else:
             return 0.08
     return 0.00

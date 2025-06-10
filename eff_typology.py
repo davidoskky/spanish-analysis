@@ -22,7 +22,7 @@ def assign_typology(df):
     )
 
     def classify_typology(row):
-        if row["wealth_decile"] >= 9 and row["income_quintile"] <= 2:
+        if row["wealth_decile"] >= 8 and row["income_quintile"] <= 2:
             return WealthIncomeMismatchType.IncomePoorWealthRich
         elif row["wealth_decile"] <= 2 and row["income_quintile"] >= 4:
             return WealthIncomeMismatchType.IncomeRichWealthPoor
