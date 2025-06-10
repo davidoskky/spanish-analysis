@@ -62,3 +62,5 @@ REGION_TARGETS_QUOTA = {
     "galicia": 8027,
     "valencia": 26905,
 }
+
+Net_Wealth = "riquezanet"
