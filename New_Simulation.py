@@ -93,21 +93,16 @@ def apply_migration_module(df):
 def apply_individual_split(df):
     df = df.copy()
 
-    # Use total household size for wealth split
-    df["split_factor"] = pd.to_numeric(df[PEOPLE_IN_HOUSEHOLD], errors="coerce").clip(
-        lower=1
-    )
-
     # For income-specific split, fallback if no earners
     if "nnumadtrab" in df.columns:
         earners = pd.to_numeric(df["nnumadtrab"], errors="coerce")
-        earners = earners.clip(lower=1).fillna(df["split_factor"])
+        earners = earners.clip(lower=1).fillna(df[PEOPLE_IN_HOUSEHOLD])
         df["income_split_factor"] = earners
     else:
-        df["income_split_factor"] = df["split_factor"]
+        df["income_split_factor"] = df[PEOPLE_IN_HOUSEHOLD]
 
     # Apply splits
-    df["riquezanet_individual"] = df["riquezanet"] / df["split_factor"]
+    df["riquezanet_individual"] = df["riquezanet"] / df[PEOPLE_IN_HOUSEHOLD]
     df["renthog21_individual"] = df["renthog21_eur22"] / df["income_split_factor"]
 
     return df
@@ -117,14 +112,14 @@ def apply_individual_split(df):
 df_eff = apply_individual_split(df_eff)
 print(
     df_eff[
-        [PEOPLE_IN_HOUSEHOLD, "nnumadtrab", "split_factor", "income_split_factor"]
+        [PEOPLE_IN_HOUSEHOLD, "nnumadtrab", PEOPLE_IN_HOUSEHOLD, "income_split_factor"]
     ].drop_duplicates()
 )
 
 
 # --- STEP 1B: Compute legal exemptions ---
 def compute_legal_exemptions(df):
-    split = df["split_factor"]
+    split = df[PEOPLE_IN_HOUSEHOLD]
 
     # --- Primary residence exemption (if owned) ---
     is_home_exempt = df["np2_1"] == "Ownership"
@@ -189,7 +184,7 @@ def simulate_wealth_tax(df, exemption=700_000, income_cap_rate=0.6):
     non_taxable_assets = (
         df["p2_71"].fillna(0)  # pension
         + df["timpvehic"].fillna(0)  # vehicles
-    ) / df["split_factor"]
+    ) / df[PEOPLE_IN_HOUSEHOLD]
 
     # --- Adjusted Base (individual) ---
     base = df["riquezanet_individual"] - non_taxable_assets - df["exempt_total"]
