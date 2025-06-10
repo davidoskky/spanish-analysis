@@ -300,26 +300,37 @@ plot_cap_relief_by_income(df_eff)
 
 # --- EFFECTIVE TAX RATE BY WEALTH PERCENTILE ---
 
-# Calculate effective tax rate by wealth percentile
+# With income cap (actual final tax)
 df_eff["eff_tax_rate"] = df_eff["final_tax"] / (df_eff["riquezanet_individual"] + 1e-6)
 df_eff["eff_tax_rate"] = df_eff["eff_tax_rate"].replace([np.inf, -np.inf], np.nan)
 
-# Define top groups
+# Without income cap (simulated tax before cap relief)
+df_eff["eff_tax_nocap"] = df_eff["sim_tax"] / (df_eff["riquezanet_individual"] + 1e-6)
+df_eff["eff_tax_nocap"] = df_eff["eff_tax_nocap"].replace([np.inf, -np.inf], np.nan)
+
+# Define top wealth groups
 top_10 = df_eff["wealth_rank"] > 0.90
 top_1 = df_eff["wealth_rank"] > 0.99
 
-# Weighted averages
+# Weighted average helper
 def weighted_avg(series, weights):
     mask = series.notna()
     return np.average(series[mask], weights=weights[mask])
 
+# Effective tax rate WITH income cap
 eff_tax_top10 = weighted_avg(df_eff.loc[top_10, "eff_tax_rate"], df_eff.loc[top_10, "facine3"])
 eff_tax_top1 = weighted_avg(df_eff.loc[top_1, "eff_tax_rate"], df_eff.loc[top_1, "facine3"])
 
+# Effective tax rate WITHOUT income cap
+eff_tax_top10_nocap = weighted_avg(df_eff.loc[top_10, "eff_tax_nocap"], df_eff.loc[top_10, "facine3"])
+eff_tax_top1_nocap = weighted_avg(df_eff.loc[top_1, "eff_tax_nocap"], df_eff.loc[top_1, "facine3"])
+
 # Output
 print(f"\n--- Effective Tax Rates ---")
-print(f"Top 10%: {eff_tax_top10:.3%}")
-print(f"Top 1%:  {eff_tax_top1:.3%}")
+print(f"With Cap - Top 10%: {eff_tax_top10:.3%}")
+print(f"With Cap - Top 1%:  {eff_tax_top1:.3%}")
+print(f"Without Cap - Top 10%: {eff_tax_top10_nocap:.3%}")
+print(f"Without Cap - Top 1%:  {eff_tax_top1_nocap:.3%}")
 
 # --- Share of Cap Relief and Final Tax by Top Wealth Groups ---
 # Define top wealth groups
@@ -396,7 +407,7 @@ cols = {
 print("\n--- Inequality Metrics ---")
 for k, v in cols.items():
     print(f"{k}: {v:.4%}")
-    
+
 # --- Save the final DataFrame to a CSV file ---
 output_file = "wealth_tax_simulation_results.csv"
 df_eff.to_csv(output_file, index=False)
