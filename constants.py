@@ -64,3 +64,4 @@ REGION_TARGETS_QUOTA = {
 }
 
 Net_Wealth = "riquezanet"
+PEOPLE_IN_HOUSEHOLD = "np1"

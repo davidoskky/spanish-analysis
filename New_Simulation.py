@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 
+from constants import PEOPLE_IN_HOUSEHOLD
 from dta_handling import load_data
 from eff_typology import assign_typology
 
@@ -93,7 +94,9 @@ def apply_individual_split(df):
     df = df.copy()
 
     # Use total household size for wealth split
-    df["split_factor"] = pd.to_numeric(df["np1"], errors="coerce").clip(lower=1)
+    df["split_factor"] = pd.to_numeric(df[PEOPLE_IN_HOUSEHOLD], errors="coerce").clip(
+        lower=1
+    )
 
     # For income-specific split, fallback if no earners
     if "nnumadtrab" in df.columns:
@@ -114,7 +117,7 @@ def apply_individual_split(df):
 df_eff = apply_individual_split(df_eff)
 print(
     df_eff[
-        ["np1", "nnumadtrab", "split_factor", "income_split_factor"]
+        [PEOPLE_IN_HOUSEHOLD, "nnumadtrab", "split_factor", "income_split_factor"]
     ].drop_duplicates()
 )
 
