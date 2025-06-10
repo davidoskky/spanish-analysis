@@ -14,17 +14,13 @@ df_eff = assign_typology(df_eff)
 
 # --- STEP 1: Compute wealth rank and assign behavioral erosion ---
 df_eff["wealth_rank"] = df_eff["riquezanet"].rank(pct=True)
-percriq_map = {"< P25": 1, "P25-P50": 2, "P50-P75": 3, "P75-P90": 4, "> P90": 5}
-df_eff["percriq"] = df_eff["percriq"].map(percriq_map)
-df_eff["percriq"] = (
-    pd.to_numeric(df_eff["percriq"], errors="coerce").fillna(0).astype(int)
-)
-
 
 # Behavioral erosion by wealth percentile group (percriq) and exact rank
 def assign_behavioral_erosion(row):
     group = row.get("percriq", 0)
     rank = row.get("wealth_rank", 0)
+    
+    print(group)
 
     if group <= 2:
         return 0.00

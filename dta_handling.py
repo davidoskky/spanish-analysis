@@ -23,7 +23,7 @@ def load_data(folder: str = "Data"):
             5: "65-74",
             6: "Over 75",
         },
-        "percrent": {
+         "percrent": {
             1: "< P20",
             2: "P20-P40",
             3: "P40-P60",
@@ -45,12 +45,12 @@ def load_data(folder: str = "Data"):
         "np2_1": {1: "Ownership", 2: "Other"},
         "nnumadtrab": {0: "None", 1: "One", 2: "Two", 3: "Three or More"},
         # PEOPLE_IN_HOUSEHOLD: {5: "5 or more"}, 5 is 5 or more but we are treating it as 5
-        "percriq": {1: "< P25", 2: "P25-P50", 3: "P50-P75", 4: "P75-P90", 5: "> P90"},
+        # "percriq": {1: "< P25", 2: "P25-P50", 3: "P50-P75", 4: "P75-P90", 5: "> P90"},
     }
     # df_eff[PEOPLE_IN_HOUSEHOLD] = df_eff[PEOPLE_IN_HOUSEHOLD].astype(int)
     df_eff = df_eff.replace(to_replace=replace_dict)
     df_eff[PEOPLE_IN_HOUSEHOLD] = pd.to_numeric(df_eff[PEOPLE_IN_HOUSEHOLD])
-
+     #  df_eff["percriq"] = pd.to_numeric(df_eff["percriq"]).fillna(0).astype(int)
     return df_eff
 
 
