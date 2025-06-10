@@ -352,6 +352,51 @@ print(f"  Top 10%: {top10_tax / total_final_tax:.2%}")
 print(f"  Top 1%:  {top1_tax / total_final_tax:.2%}")
 print(f"  Top 0.1%: {top01_tax / total_final_tax:.2%}")
 
+# --- Inequality metrics ---
+# --- PREP: Compute net wealth positions ---
+df_eff["wealth_after_cap"] = df_eff["riquezanet_individual"] - df_eff["final_tax"].fillna(0)
+df_eff["wealth_after_no_cap"] = df_eff["riquezanet_individual"] - df_eff["sim_tax"].fillna(0)
+
+# --- Gini coefficient function ---
+def gini(array, weights):
+    df = pd.DataFrame({"x": array, "w": weights}).dropna()
+    df = df.sort_values("x")
+    xw = df["x"] * df["w"]
+    cumw = df["w"].cumsum()
+    cumxw = xw.cumsum()
+    rel_cumw = cumw / cumw.iloc[-1]
+    rel_cumxw = cumxw / cumxw.iloc[-1]
+    return 1 - 2 * np.trapz(rel_cumxw, rel_cumw)
+
+# --- Top share function ---
+def top_share(df, col, weight, pct):
+    df = df[[col, weight]].dropna().sort_values(col, ascending=False).copy()
+    df["cum_weight"] = df[weight].cumsum()
+    cutoff = df[weight].sum() * pct
+    df["in_top"] = df["cum_weight"] <= cutoff
+    top_sum = (df.loc[df["in_top"], col] * df.loc[df["in_top"], weight]).sum()
+    total = (df[col] * df[weight]).sum()
+    return top_sum / total
+
+# --- Calculate metrics ---
+w = df_eff["facine3"]
+cols = {
+    "Gini Before Tax": gini(df_eff["riquezanet_individual"], w),
+    "Gini After Tax (cap)": gini(df_eff["wealth_after_cap"], w),
+    "Gini After Tax (no cap)": gini(df_eff["wealth_after_no_cap"], w),
+    "Top 10% Share Before": top_share(df_eff, "riquezanet_individual", "facine3", 0.10),
+    "Top 10% Share After (cap)": top_share(df_eff, "wealth_after_cap", "facine3", 0.10),
+    "Top 10% Share After (no cap)": top_share(df_eff, "wealth_after_no_cap", "facine3", 0.10),
+    "Top 1% Share Before": top_share(df_eff, "riquezanet_individual", "facine3", 0.01),
+    "Top 1% Share After (cap)": top_share(df_eff, "wealth_after_cap", "facine3", 0.01),
+    "Top 1% Share After (no cap)": top_share(df_eff, "wealth_after_no_cap", "facine3", 0.01),
+}
+
+# --- Print results ---
+print("\n--- Inequality Metrics ---")
+for k, v in cols.items():
+    print(f"{k}: {v:.4%}")
+    
 # --- Save the final DataFrame to a CSV file ---
 output_file = "wealth_tax_simulation_results.csv"
 df_eff.to_csv(output_file, index=False)
