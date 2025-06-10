@@ -1,6 +1,7 @@
 import pandas as pd
 
-from dta_handling import df_eff
+from data_models import WealthIncomeMismatchType
+
 
 def assign_typology(df):
     """
@@ -13,23 +14,20 @@ def assign_typology(df):
 
     df = df.copy()
 
-    # Step 1: Compute wealth deciles and income quintiles within each implicate
-    df['wealth_decile'] = df.groupby('imputation')['riquezanet'].transform(
-        lambda x: pd.qcut(x.rank(method='first'), 10, labels=False) + 1
+    df["wealth_decile"] = df.groupby("imputation")["riquezanet"].transform(
+        lambda x: pd.qcut(x.rank(method="first"), 10, labels=False) + 1
     )
-    df['income_quintile'] = df.groupby('imputation')['renthog21_eur22'].transform(
-        lambda x: pd.qcut(x.rank(method='first'), 5, labels=False) + 1
+    df["income_quintile"] = df.groupby("imputation")["renthog21_eur22"].transform(
+        lambda x: pd.qcut(x.rank(method="first"), 5, labels=False) + 1
     )
 
-    # Step 2: Classify mismatch types
     def classify_typology(row):
-        if row['wealth_decile'] >= 9 and row['income_quintile'] <= 2:
-            return 'Wealth-rich, income-poor'
-        elif row['wealth_decile'] <= 2 and row['income_quintile'] >= 4:
-            return 'Income-rich, wealth-poor'
+        if row["wealth_decile"] >= 9 and row["income_quintile"] <= 2:
+            return WealthIncomeMismatchType.IncomePoorWealthRich
+        elif row["wealth_decile"] <= 2 and row["income_quintile"] >= 4:
+            return WealthIncomeMismatchType.IncomeRichWealthPoor
         else:
-            return 'Aligned'
+            return WealthIncomeMismatchType.Aligned
 
-    df['mismatch_type'] = df.apply(classify_typology, axis=1)
+    df["mismatch_type"] = df.apply(classify_typology, axis=1)
     return df
-
