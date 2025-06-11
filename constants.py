@@ -2,5 +2,6 @@
 Net_Wealth = "riquezanet"
 PEOPLE_IN_HOUSEHOLD = "np1"
 Income = "renthog21_eur22"
-Wealth_Percentile = "percriq"
+wealth_percentile = "percriq"
 working_status = "nsitlabdom"
+income_percentile = "percrent"

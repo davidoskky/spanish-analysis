@@ -50,7 +50,7 @@ def load_data(folder: str = "Data"):
     # df_eff[PEOPLE_IN_HOUSEHOLD] = df_eff[PEOPLE_IN_HOUSEHOLD].astype(int)
     df_eff = df_eff.replace(to_replace=replace_dict)
     df_eff[PEOPLE_IN_HOUSEHOLD] = pd.to_numeric(df_eff[PEOPLE_IN_HOUSEHOLD])
-     #  df_eff["percriq"] = pd.to_numeric(df_eff["percriq"]).fillna(0).astype(int)
+     # df_eff["percriq"] = pd.to_numeric(df_eff["percriq"]).fillna(0).astype(int)
     return df_eff
 
 
