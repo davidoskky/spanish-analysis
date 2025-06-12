@@ -34,7 +34,7 @@ def apply_valuation_manipulation(df, real_estate_discount=0.15, business_discoun
     """
     df = df.copy()
     df["p2_70"] = df["p2_70"].fillna(0) * (1 - real_estate_discount)  # Real estate undervaluation
-    df["p2_69"] = df["p2_69"].fillna(0) * (1 - business_discount)     # Business equity undervaluation
+    df["valhog"] = df["valhog"].fillna(0) * (1 - business_discount)     # Business equity undervaluation
     return df
 
 
