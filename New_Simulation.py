@@ -3,14 +3,14 @@ import numpy as np
 
 from constants import PEOPLE_IN_HOUSEHOLD
 from dta_handling import load_data
-from eff_typology import assign_typology
+from eff_typology import assign_typology1
 
 np.random.seed(42)
 EPSILON = 1e-6
 
 # --- STEP 0: Assign typology ---
 df_eff = load_data()
-df_eff = assign_typology(df_eff)
+df_eff = assign_typology1(df_eff)
 
 # --- STEP 1: Compute wealth rank and assign behavioral erosion ---
 df_eff["wealth_rank"] = df_eff["riquezanet"].rank(pct=True)

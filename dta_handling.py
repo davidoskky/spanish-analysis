@@ -92,7 +92,7 @@ replace_dict = {
     "np2_1": {1: "Ownership", 2: "Other"},
     "nnumadtrab": {0: "None", 1: "One", 2: "Two", 3: "Three or More"},
     PEOPLE_IN_HOUSEHOLD: {5: "5 or more"},
-    "percriq": {1: "< P25", 2: "P25-P50", 3: "P50-P75", 4: "P75-P90", 5: "> P90"},
+    # "percriq": {1: "< P25", 2: "P25-P50", 3: "P50-P75", 4: "P75-P90", 5: "> P90"},
 }
 # df_eff[PEOPLE_IN_HOUSEHOLD] = df_eff[PEOPLE_IN_HOUSEHOLD].astype(int)
 df_eff = df_eff.replace(to_replace=replace_dict)
