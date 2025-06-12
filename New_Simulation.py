@@ -1,88 +1,4 @@
-import pandas as pd
-import numpy as np
-
 from constants import PEOPLE_IN_HOUSEHOLD
-from dta_handling import load_data
-from eff_typology import assign_typology1
-
-np.random.seed(42)
-EPSILON = 1e-6
-
-# --- STEP 0: Assign typology ---
-df_eff = load_data()
-df_eff = assign_typology1(df_eff)
-
-# --- STEP 1: Compute wealth rank and assign behavioral erosion ---
-df_eff["wealth_rank"] = df_eff["riquezanet"].rank(pct=True)
-
-# Behavioral erosion by wealth percentile group (percriq) and exact rank
-def assign_behavioral_erosion(row):
-    group = row.get("percriq", 0)
-    rank = row.get("wealth_rank", 0)
-    
-    if group <= 2:
-        return 0.00
-    elif group == 3:
-        return 0.04
-    elif group == 4:
-        return 0.075
-    elif group == 5:
-        if rank > 0.999:
-            return 0.18
-        elif rank > 0.99:
-            return 0.13
-        else:
-            return 0.08
-    return 0.00
-
-
-df_eff["behavioral_erosion"] = df_eff.apply(assign_behavioral_erosion, axis=1)
-
-
-# --- STEP 6: Migration attrition module ---
-MIGRATION_THRESHOLDS = {
-    "top_01": 0.999,
-    "top_1": 0.99,
-    "top_5": 0.95,
-}
-BASE_PROBABILITIES = {
-    "top_01": 0.05,
-    "top_1": 0.03,
-    "top_5": 0.009,
-}
-
-
-def compute_migration_probability(row):
-    p = row.get("wealth_rank", 0)
-    prob = 0.0
-    if p > MIGRATION_THRESHOLDS["top_01"]:
-        prob = BASE_PROBABILITIES["top_01"]
-    elif p > MIGRATION_THRESHOLDS["top_1"]:
-        prob = BASE_PROBABILITIES["top_1"]
-    elif p > MIGRATION_THRESHOLDS["top_5"]:
-        prob = BASE_PROBABILITIES["top_5"]
-
-    ratio = row.get("sim_tax", 0) / (row.get("taxable_wealth_eroded", 0) + 1e-6)
-    prob *= 1 + 2 * min(ratio, 0.02)
-
-    return min(prob, 1.0)
-
-
-def apply_migration_module(df):
-    df = df.copy()
-    df["Migration_Prob"] = df.apply(compute_migration_probability, axis=1)
-    df["Migration_Exit"] = np.random.rand(len(df)) < df["Migration_Prob"]
-
-    df.loc[
-        df["Migration_Exit"],
-        ["taxable_wealth_eroded", "sim_tax", "final_tax", "cap_relief"],
-    ] = 0.0
-
-    print(
-        f" Migration module applied: {df['Migration_Exit'].sum():,} individuals exited."
-    )
-    return df
-
 
 def apply_individual_split(df):
     df = df.copy()
@@ -101,17 +17,7 @@ def apply_individual_split(df):
 
     return df
 
-
-# Apply individual split for households with multiple members
-df_eff = apply_individual_split(df_eff)
-print(
-    df_eff[
-        [PEOPLE_IN_HOUSEHOLD, "nnumadtrab", PEOPLE_IN_HOUSEHOLD, "income_split_factor"]
-    ].drop_duplicates()
-)
-
-
-# --- STEP 1B: Compute legal exemptions ---
+# --- Compute legal exemptions ---
 def compute_legal_exemptions(df):
     split = df[PEOPLE_IN_HOUSEHOLD]
 
@@ -125,8 +31,7 @@ def compute_legal_exemptions(df):
 
     return home_exempt + business_exempt
 
-
-# --- STEP 1C: Apply income cap ---
+# --- Apply income cap ---
 def apply_income_cap(df, income_cap_rate=0.60, min_wt_share=0.20):
     df = df.copy()
 
@@ -144,8 +49,7 @@ def apply_income_cap(df, income_cap_rate=0.60, min_wt_share=0.20):
 
     return df
 
-
-# --- STEP 2: Wealth tax simulation ---
+# --- Wealth tax simulation ---
 def simulate_wealth_tax(df, exemption=700_000, income_cap_rate=0.6):
     df = df.copy()
 
@@ -183,17 +87,98 @@ def simulate_wealth_tax(df, exemption=700_000, income_cap_rate=0.6):
     # --- Adjusted Base (individual) ---
     base = df["riquezanet_individual"] - non_taxable_assets - df["exempt_total"]
     df["taxable_wealth"] = np.maximum(base - exemption, 0)
+    df["sim_tax"] = df["taxable_wealth"].apply(compute_tax)
+
+
+    return df
+
+# Behavioral erosion by wealth percentile group (percriq) and exact rank
+def assign_behavioral_erosion_from_elasticity(row, ref_tax_rate=0.004, elasticity=0.64, max_erosion=0.30):
+    """
+    Compute behavioral erosion factor θ_i = 1 - ((1 - τ_eff) / (1 - τ_ref))^ε
+    - τ_eff: effective tax rate for individual i
+    - τ_ref: reference average effective rate (e.g., 0.004)
+    - ε: elasticity of taxable wealth (e.g., 0.64)
+    """
+    net_wealth = row.get("riquezanet_individual", 0)
+    sim_tax = row.get("sim_tax", 0)
+
+    if net_wealth <= 1e-6 or sim_tax <= 0:
+        return 0.0
+    eff_rate = sim_tax / net_wealth
+
+    if eff_rate <= 0 or eff_rate >= 1:
+        return 0.0
+
+    erosion = 1 - ((1 - eff_rate) / (1 - ref_tax_rate)) ** elasticity
+
+    return min(max(erosion, 0), max_erosion)
+
+
+def get_grouped_elasticity(row):
+    """
+    Assign elasticity based on wealth rank group.
+    """
+    p = row.get("wealth_rank", 0)
+    if p > 0.999:
+        return 0.80
+    elif p > 0.99:
+        return 0.50
+    elif p > 0.90:
+        return 0.30
+    else:
+        return 0.10
+
+
+def apply_behavioral_response(df, ref_tax_rate=0.004):
+    """
+    Apply behavioral erosion based on wealth-ranked elasticity to simulate real-world avoidance.
+    Must be called after initial simulate_wealth_tax(), before income cap.
+    """
+    df = df.copy()
+
+    # Step 1: Calculate erosion factor per individual using grouped elasticity
+    df["behavioral_erosion"] = df.apply(
+        lambda row: assign_behavioral_erosion_from_elasticity(
+            row,
+            ref_tax_rate=ref_tax_rate,
+            elasticity=get_grouped_elasticity(row)
+        ),
+        axis=1,
+    )
+
+    # Step 2: Adjust taxable wealth
     df["taxable_wealth_eroded"] = df["taxable_wealth"] * (1 - df["behavioral_erosion"])
-    df["sim_tax"] = df["taxable_wealth_eroded"].apply(compute_tax)
+    return df
+
+def simulate_migration_attrition(df, threshold=0.999, prob_dropout=0.003, seed=42):
+    """
+    Simulate migration or registry dropout for the top 0.1% of the wealth distribution.
+    
+    Parameters:
+    - threshold: percentile threshold (default = 0.999 for top 0.1%)
+    - prob_dropout: probability of dropping out (e.g. 0.3%)
+    - seed: random seed for reproducibility
+    """
+    np.random.seed(seed)
+    df = df.copy()
+
+    # Identify potential dropouts (top 0.1%)
+    is_top = df["wealth_rank"] > threshold
+    dropout = np.random.rand(len(df)) < prob_dropout
+
+    # Flag dropouts
+    df["Migration_Exit"] = is_top & dropout
+
+    # Set tax liability to zero for dropouts
+    df.loc[df["Migration_Exit"], "sim_tax"] = 0
+    df.loc[df["Migration_Exit"], "taxable_wealth_eroded"] = 0
 
     return df
 
 
-df_eff = apply_migration_module(df_eff)
-df_eff = simulate_wealth_tax(df_eff)
-df_eff = apply_income_cap(df_eff)
 
-# --- STEP 3: Final adjustments ---
+# --- Final adjustments ---
 # Assumptions based on academic literature (e.g., Durán-Cabré et al., Zucman, Alstadsæter):
 EVASION_RATE = 0  # 30% of taxable wealth evaded (undisclosed or offshore)
 UNDERVALUE_RATE = 0  # 15% undervaluation of assets, esp. real estate
@@ -206,7 +191,6 @@ adjustment_factor = (
     (1 - EVASION_RATE) * (1 - UNDERVALUE_RATE) * (1 - REGIONAL_REDUCTION)
 )
 
-
 def apply_adjustments(df):
     df = df.copy()
     df["adjusted_taxable_wealth"] = df["taxable_wealth_eroded"] * adjustment_factor
@@ -217,13 +201,9 @@ def apply_adjustments(df):
     print(f" Adjustments applied: {df['adjusted_final_tax'].sum():,.2f} EUR total tax.")
     return df
 
-
-df_eff = apply_adjustments(df_eff)
-
 # --- SUMMARY TABLE GENERATION ---
 import pandas as pd
 import numpy as np
-
 
 # --- SUMMARY TABLE GENERATION ---
 def generate_summary_table(df, weight_col="facine3"):
@@ -288,8 +268,6 @@ def typology_impact_summary(df, weight_col="facine3"):
     return typology_df
 
 
-summary_table = generate_summary_table(df_eff)
-typology_table = typology_impact_summary(df_eff)
 
 # --- DISTRIBUTIONAL PLOTS ---
 import matplotlib.pyplot as plt
@@ -327,94 +305,69 @@ def plot_cap_relief_by_income(df):
     plt.show()
 
 
-plot_tax_rate_by_wealth(df_eff)
-plot_cap_relief_by_income(df_eff)
+def compute_effective_tax_rates(df):
+    df = df.copy()
+    df["eff_tax_rate"] = df["final_tax"] / (df["riquezanet_individual"] + 1e-6)
+    df["eff_tax_rate"] = df["eff_tax_rate"].replace([np.inf, -np.inf], np.nan)
 
-# --- EFFECTIVE TAX RATE BY WEALTH PERCENTILE ---
+    df["eff_tax_nocap"] = df["sim_tax"] / (df["riquezanet_individual"] + 1e-6)
+    df["eff_tax_nocap"] = df["eff_tax_nocap"].replace([np.inf, -np.inf], np.nan)
 
-# With income cap (actual final tax)
-df_eff["eff_tax_rate"] = df_eff["final_tax"] / (df_eff["riquezanet_individual"] + 1e-6)
-df_eff["eff_tax_rate"] = df_eff["eff_tax_rate"].replace([np.inf, -np.inf], np.nan)
+    def weighted_avg(series, weights):
+        mask = series.notna()
+        return np.average(series[mask], weights=weights[mask])
 
-# Without income cap (simulated tax before cap relief)
-df_eff["eff_tax_nocap"] = df_eff["sim_tax"] / (df_eff["riquezanet_individual"] + 1e-6)
-df_eff["eff_tax_nocap"] = df_eff["eff_tax_nocap"].replace([np.inf, -np.inf], np.nan)
+    top_10 = df["wealth_rank"] > 0.90
+    top_1 = df["wealth_rank"] > 0.99
 
-# Define top wealth groups
-top_10 = df_eff["wealth_rank"] > 0.90
-top_1 = df_eff["wealth_rank"] > 0.99
+    eff_tax_top10 = weighted_avg(df.loc[top_10, "eff_tax_rate"], df.loc[top_10, "facine3"])
+    eff_tax_top1 = weighted_avg(df.loc[top_1, "eff_tax_rate"], df.loc[top_1, "facine3"])
+    eff_tax_top10_nocap = weighted_avg(df.loc[top_10, "eff_tax_nocap"], df.loc[top_10, "facine3"])
+    eff_tax_top1_nocap = weighted_avg(df.loc[top_1, "eff_tax_nocap"], df.loc[top_1, "facine3"])
+
+    print("\n--- Effective Tax Rates ---")
+    print(f"With Cap - Top 10%: {eff_tax_top10:.3%}")
+    print(f"With Cap - Top 1%:  {eff_tax_top1:.3%}")
+    print(f"Without Cap - Top 10%: {eff_tax_top10_nocap:.3%}")
+    print(f"Without Cap - Top 1%:  {eff_tax_top1_nocap:.3%}")
+
+    return df
 
 
-# Weighted average helper
-def weighted_avg(series, weights):
-    mask = series.notna()
-    return np.average(series[mask], weights=weights[mask])
+def summarize_cap_and_tax_shares(df):
+    top_10 = df["wealth_rank"] > 0.90
+    top_1 = df["wealth_rank"] > 0.99
+    top_01 = df["wealth_rank"] > 0.999
+
+    total_relief = (df["cap_relief"] * df["facine3"]).sum()
+    total_final_tax = (df["final_tax"] * df["facine3"]).sum()
+
+    top10_relief = (df.loc[top_10, "cap_relief"] * df.loc[top_10, "facine3"]).sum()
+    top1_relief = (df.loc[top_1, "cap_relief"] * df.loc[top_1, "facine3"]).sum()
+    top01_relief = (df.loc[top_01, "cap_relief"] * df.loc[top_01, "facine3"]).sum()
+
+    top10_tax = (df.loc[top_10, "final_tax"] * df.loc[top_10, "facine3"]).sum()
+    top1_tax = (df.loc[top_1, "final_tax"] * df.loc[top_1, "facine3"]).sum()
+    top01_tax = (df.loc[top_01, "final_tax"] * df.loc[top_01, "facine3"]).sum()
+
+    print("Cap Relief Share:")
+    print(f"  Top 10%: {top10_relief / total_relief:.2%}")
+    print(f"  Top 1%:  {top1_relief / total_relief:.2%}")
+    print(f"  Top 0.1%: {top01_relief / total_relief:.2%}\n")
+
+    print("Final Tax Share:")
+    print(f"  Top 10%: {top10_tax / total_final_tax:.2%}")
+    print(f"  Top 1%:  {top1_tax / total_final_tax:.2%}")
+    print(f"  Top 0.1%: {top01_tax / total_final_tax:.2%}")
 
 
-# Effective tax rate WITH income cap
-eff_tax_top10 = weighted_avg(
-    df_eff.loc[top_10, "eff_tax_rate"], df_eff.loc[top_10, "facine3"]
-)
-eff_tax_top1 = weighted_avg(
-    df_eff.loc[top_1, "eff_tax_rate"], df_eff.loc[top_1, "facine3"]
-)
-
-# Effective tax rate WITHOUT income cap
-eff_tax_top10_nocap = weighted_avg(
-    df_eff.loc[top_10, "eff_tax_nocap"], df_eff.loc[top_10, "facine3"]
-)
-eff_tax_top1_nocap = weighted_avg(
-    df_eff.loc[top_1, "eff_tax_nocap"], df_eff.loc[top_1, "facine3"]
-)
-
-# Output
-print("\n--- Effective Tax Rates ---")
-print(f"With Cap - Top 10%: {eff_tax_top10:.3%}")
-print(f"With Cap - Top 1%:  {eff_tax_top1:.3%}")
-print(f"Without Cap - Top 10%: {eff_tax_top10_nocap:.3%}")
-print(f"Without Cap - Top 1%:  {eff_tax_top1_nocap:.3%}")
-
-# --- Share of Cap Relief and Final Tax by Top Wealth Groups ---
-# Define top wealth groups
-top_10 = df_eff["wealth_rank"] > 0.90
-top_1 = df_eff["wealth_rank"] > 0.99
-top_01 = df_eff["wealth_rank"] > 0.999
-
-# Total weighted values
-total_relief = (df_eff["cap_relief"] * df_eff["facine3"]).sum()
-total_final_tax = (df_eff["final_tax"] * df_eff["facine3"]).sum()
-
-# Relief shares
-top10_relief = (df_eff.loc[top_10, "cap_relief"] * df_eff.loc[top_10, "facine3"]).sum()
-top1_relief = (df_eff.loc[top_1, "cap_relief"] * df_eff.loc[top_1, "facine3"]).sum()
-top01_relief = (df_eff.loc[top_01, "cap_relief"] * df_eff.loc[top_01, "facine3"]).sum()
-
-# Final tax shares
-top10_tax = (df_eff.loc[top_10, "final_tax"] * df_eff.loc[top_10, "facine3"]).sum()
-top1_tax = (df_eff.loc[top_1, "final_tax"] * df_eff.loc[top_1, "facine3"]).sum()
-top01_tax = (df_eff.loc[top_01, "final_tax"] * df_eff.loc[top_01, "facine3"]).sum()
-
-# Print results
-print("Cap Relief Share:")
-print(f"  Top 10%: {top10_relief / total_relief:.2%}")
-print(f"  Top 1%:  {top1_relief / total_relief:.2%}")
-print(f"  Top 0.1%: {top01_relief / total_relief:.2%}\n")
-
-print("Final Tax Share:")
-print(f"  Top 10%: {top10_tax / total_final_tax:.2%}")
-print(f"  Top 1%:  {top1_tax / total_final_tax:.2%}")
-print(f"  Top 0.1%: {top01_tax / total_final_tax:.2%}")
+def compute_net_wealth_post_tax(df):
+    df = df.copy()
+    df["wealth_after_cap"] = df["riquezanet_individual"] - df["final_tax"].fillna(0)
+    df["wealth_after_no_cap"] = df["riquezanet_individual"] - df["sim_tax"].fillna(0)
+    return df
 
 # --- Inequality metrics ---
-# --- PREP: Compute net wealth positions ---
-df_eff["wealth_after_cap"] = df_eff["riquezanet_individual"] - df_eff[
-    "final_tax"
-].fillna(0)
-df_eff["wealth_after_no_cap"] = df_eff["riquezanet_individual"] - df_eff[
-    "sim_tax"
-].fillna(0)
-
-
 # --- Gini coefficient function ---
 def gini(array, weights):
     df = pd.DataFrame({"x": array, "w": weights}).dropna()
@@ -426,8 +379,6 @@ def gini(array, weights):
     rel_cumxw = cumxw / cumxw.iloc[-1]
     return 1 - 2 * np.trapz(rel_cumxw, rel_cumw)
 
-
-# --- Top share function ---
 def top_share(df, col, weight, pct):
     df = df[[col, weight]].dropna().sort_values(col, ascending=False).copy()
     df["cum_weight"] = df[weight].cumsum()
@@ -437,31 +388,74 @@ def top_share(df, col, weight, pct):
     total = (df[col] * df[weight]).sum()
     return top_sum / total
 
+def compute_inequality_metrics(df):
+    df = compute_net_wealth_post_tax(df)
+    w = df["facine3"]
+    metrics = {
+        "Gini Before Tax": gini(df["riquezanet_individual"], w),
+        "Gini After Tax (cap)": gini(df["wealth_after_cap"], w),
+        "Gini After Tax (no cap)": gini(df["wealth_after_no_cap"], w),
+        "Top 10% Share Before": top_share(df, "riquezanet_individual", "facine3", 0.10),
+        "Top 10% Share After (cap)": top_share(df, "wealth_after_cap", "facine3", 0.10),
+        "Top 10% Share After (no cap)": top_share(df, "wealth_after_no_cap", "facine3", 0.10),
+        "Top 1% Share Before": top_share(df, "riquezanet_individual", "facine3", 0.01),
+        "Top 1% Share After (cap)": top_share(df, "wealth_after_cap", "facine3", 0.01),
+        "Top 1% Share After (no cap)": top_share(df, "wealth_after_no_cap", "facine3", 0.01),
+    }
 
-# --- Calculate metrics ---
-w = df_eff["facine3"]
-cols = {
-    "Gini Before Tax": gini(df_eff["riquezanet_individual"], w),
-    "Gini After Tax (cap)": gini(df_eff["wealth_after_cap"], w),
-    "Gini After Tax (no cap)": gini(df_eff["wealth_after_no_cap"], w),
-    "Top 10% Share Before": top_share(df_eff, "riquezanet_individual", "facine3", 0.10),
-    "Top 10% Share After (cap)": top_share(df_eff, "wealth_after_cap", "facine3", 0.10),
-    "Top 10% Share After (no cap)": top_share(
-        df_eff, "wealth_after_no_cap", "facine3", 0.10
-    ),
-    "Top 1% Share Before": top_share(df_eff, "riquezanet_individual", "facine3", 0.01),
-    "Top 1% Share After (cap)": top_share(df_eff, "wealth_after_cap", "facine3", 0.01),
-    "Top 1% Share After (no cap)": top_share(
-        df_eff, "wealth_after_no_cap", "facine3", 0.01
-    ),
-}
+    print("\n--- Inequality Metrics ---")
+    for k, v in metrics.items():
+        print(f"{k}: {v:.4%}")
+    return metrics
 
-# --- Print results ---
-print("\n--- Inequality Metrics ---")
-for k, v in cols.items():
-    print(f"{k}: {v:.4%}")
+def main():
+    import pandas as pd
+    import numpy as np
 
-# --- Save the final DataFrame to a CSV file ---
-output_file = "wealth_tax_simulation_results.csv"
-df_eff.to_csv(output_file, index=False)
-print(f"\nFinal DataFrame saved to {output_file}")
+    from constants import PEOPLE_IN_HOUSEHOLD
+    from dta_handling import load_data
+    from eff_typology import assign_typology1
+
+    # Configuration
+    np.random.seed(42)
+
+    # Load and prepare data
+    df = load_data()
+    df = assign_typology1(df)
+
+    # Apply income and wealth splits
+    df = apply_individual_split(df)
+    df["wealth_rank"] = df["riquezanet"].rank(pct=True)
+    # Simulation pipeline
+    df = simulate_wealth_tax(df)                     # Legal base (no erosion)
+    df = apply_behavioral_response(df)               # Behavioral erosion
+    df = simulate_migration_attrition(df)            # Migration dropout
+    df = apply_income_cap(df)                        # Apply 60% income cap
+    df = apply_adjustments(df)                       # Apply final corrections
+
+    # Summaries
+    generate_summary_table(df)
+    typology_impact_summary(df)
+
+    # Plots
+    plot_tax_rate_by_wealth(df)
+    plot_cap_relief_by_income(df)
+
+    # Metrics
+    compute_effective_tax_rates(df)
+    summarize_cap_and_tax_shares(df)
+
+
+    df["wealth_after_cap"] = df["riquezanet_individual"] - df[
+    "final_tax"
+    ].fillna(0)
+    df["wealth_after_no_cap"] = df["riquezanet_individual"] - df[
+    "sim_tax"
+    ].fillna(0)
+
+    compute_inequality_metrics(df)
+
+
+
+if __name__ == "__main__":
+    main()
