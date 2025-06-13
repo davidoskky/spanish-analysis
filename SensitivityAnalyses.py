@@ -4,12 +4,8 @@ from copy import deepcopy
 from dta_handling import load_data
 from eff_typology import assign_typology1
 from New_Simulation import (
-    apply_individual_split,
-    simulate_wealth_tax,
     generate_summary_table,
     typology_impact_summary,
-    compute_effective_tax_rates,
-    summarize_cap_and_tax_shares,
 )
 
 # --- Sensitivity Simulation Function ---
@@ -63,15 +59,21 @@ def simulate_wealth_tax_sensitivity(
 
     df["sim_tax"] = df["taxable_wealth"].apply(compute_tax)
 
-    if apply_cap:
-        income = df["income_individual"]
-        cap = income * income_cap_rate
-        df["adjusted_sim_tax"] = df["sim_tax"]
-        df["adjusted_final_tax"] = np.minimum(df["sim_tax"], cap)
-    else:
-        df["adjusted_final_tax"] = df["sim_tax"]
-
     df["taxable_wealth_eroded"] = df["taxable_wealth"] * (1 - elasticity)
+
+    if elasticity > 0:
+        df["adjusted_sim_tax"] = df["taxable_wealth_eroded"].apply(compute_tax)
+    else:
+        df["adjusted_sim_tax"] = df["sim_tax"]
+
+    if apply_cap:
+        cap = df["income_individual"] * income_cap_rate
+        df["adjusted_final_tax"] = np.minimum(df["adjusted_sim_tax"], cap)
+    else:
+        df["adjusted_final_tax"] = df["adjusted_sim_tax"]
+
+    df["cap_relief"] = df["adjusted_sim_tax"] - df["adjusted_final_tax"]
+    df["final_tax"] = df["adjusted_final_tax"]
 
     return df
 
@@ -88,7 +90,7 @@ def get_split_method(method):
         if method == "equal":
             df["netwealth_individual"] = df["riquezanet"] / df["np1"]
         elif method == "adults_only":
-            # Convert to numeric BEFORE clipping
+           
             earners = pd.to_numeric(df["nnumadtrab"], errors="coerce")
             earners = earners.clip(lower=1).fillna(df["np1"])
             df["netwealth_individual"] = df["riquezanet"] / earners
@@ -109,6 +111,30 @@ def apply_income_split(df):
     df["income_individual"] = df["renthog21_eur22"] / df["income_split_factor"]
     return df
 
+# --- Typology Impact Table ---
+def typology_impact_summary(df, weight_col="facine3"):
+    df = df[df["final_tax"].notnull() & df["sim_tax"].notnull()]
+
+    typology_df = (
+        df.groupby("mismatch_type")
+        .apply(
+            lambda g: pd.Series(
+                {
+                    "Population Share": g[weight_col].sum() / df[weight_col].sum(),
+                    "Avg Final Tax": np.average(g["final_tax"], weights=g[weight_col]),
+                    "Avg Sim Tax": np.average(g["sim_tax"], weights=g[weight_col]),
+                    "Cap Relief Share": (g["cap_relief"] > 1e-6).mean(),
+                    "Total Revenue": (g["final_tax"] * g[weight_col]).sum(),
+                }
+            )
+        )
+        .reset_index()
+    )
+
+    print("\n--- Typology Impact Table ---")
+    print(typology_df.to_string(index=False))
+    return typology_df
+
 # --- Main Function ---
 def main():
     df_base = load_data()
@@ -116,9 +142,9 @@ def main():
 
     elasticities = [0.0, 0.1, 0.2]
     valuation_scenarios = [(0.10, 0.15), (0.15, 0.20)]
-    income_cap_rates = [0.5, 0.6, 0.7]
+    income_cap_rates = [0.5, 0.7, 0.8]
     wealth_split_methods = ["equal", "adults_only", "head_only"]
-    exemption_thresholds = [700_000, 500_000, 300_000]
+    exemption_thresholds = [1000_000, 800_000, 500_000]
 
     results = {}
 
@@ -150,9 +176,13 @@ def main():
         sim_df = simulate_wealth_tax_sensitivity(df, exemption=threshold)
         results[f"exemption_{threshold}"] = sim_df
 
+# --- summary statistics for each scenario ---
     summary_tables = {}
     for key, df in results.items():
-        summary_tables[key] = generate_summary_table(df)
+        summary_name = f"summary_{key}"
+        summary_tables[summary_name] = generate_summary_table(df)
+        print(f"\nScenario: {key}")
+        typology_impact_summary(df)
 
 if __name__ == "__main__":
     main()

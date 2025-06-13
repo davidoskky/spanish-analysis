@@ -1,8 +1,8 @@
 import pandas as pd
 import numpy as np
-from constants import PEOPLE_IN_HOUSEHOLD
+from constants import (PEOPLE_IN_HOUSEHOLD, Net_Wealth, Income, wealth_percentile, working_status, income_percentile)
 
-def apply_individual_split(df):
+def individual_split(df):
     df = df.copy()
     
     # Use number of working adults (0–3+) as a proxy for adult economic agents
@@ -321,7 +321,7 @@ def plot_tax_rate_by_wealth(df):
 
 
 def plot_cap_relief_by_income(df):
-    df = df.copy()  # Optional: Avoid modifying the original df
+    df = df.copy()
     df["income_decile"] = pd.qcut(
         df["income_individual"], 10, labels=[f"D{i}" for i in range(1, 11)]
     )
@@ -449,10 +449,9 @@ def main():
     df = load_data()
     df = assign_typology1(df)
 
-    # Apply income and wealth splits
-    df = apply_individual_split(df)
+    df = individual_split(df)
     df["wealth_rank"] = df["riquezanet"].rank(pct=True)
-    # Simulation pipeline
+
     df = apply_valuation_manipulation(df)
     df = simulate_wealth_tax(df)                     # Legal base (no erosion)
     df = apply_behavioral_response(df)               # Behavioral erosion
