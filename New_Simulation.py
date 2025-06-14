@@ -149,12 +149,12 @@ def simulate_wealth_tax(df, exemption=700_000, income_cap_rate=0.6):
 
     return df
 
-def assign_behavioral_erosion_from_elasticity(row, ref_tax_rate=0.004, elasticity=0.64, max_erosion=0.30):
+def assign_behavioral_erosion_from_elasticity(row, ref_tax_rate=0.004, elasticity=0.35, max_erosion=0.35):
     """
     Compute behavioral erosion factor θ_i = 1 - ((1 - τ_eff) / (1 - τ_ref))^ε
     - τ_eff: effective tax rate for individual i
     - τ_ref: reference average effective rate (e.g., 0.004)
-    - ε: elasticity of taxable wealth (e.g., 0.64)
+    - ε: elasticity of taxable wealth (e.g., 0.35)
     
      Sources:
     - Jakobsen et al. (2020), QJE
@@ -181,12 +181,14 @@ def get_grouped_elasticity(row):
     Assign elasticity based on wealth rank group.
     """
     p = row.get("wealth_rank", 0)
+    if p > 0.9999: 
+        return 1.1
     if p > 0.999:
         return 0.80
     elif p > 0.99:
-        return 0.50
+        return 0.40
     elif p > 0.90:
-        return 0.35
+        return 0.20
     else:
         return 0.10
 
