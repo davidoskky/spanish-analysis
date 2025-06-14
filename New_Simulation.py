@@ -161,7 +161,7 @@ def assign_behavioral_erosion_from_elasticity(row, ref_tax_rate=0.004, elasticit
     - Seim (2017), AER
     - Duran-Cabré et al. (2023), WP
     """
-    net_wealth = row.get("income_individual", 0)
+    net_wealth = row.get(Net_Wealth, 0)
     sim_tax = row.get("sim_tax", 0)
 
     if net_wealth <= 1e-6 or sim_tax <= 0:
