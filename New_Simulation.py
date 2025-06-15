@@ -17,6 +17,8 @@ from eff_typology import assign_typology
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+from ineqpy.inequality import gini
+
 
 def individual_split(df):
     """
@@ -378,7 +380,6 @@ def typology_impact_summary(df, weight_col="facine3"):
         )
         .reset_index()
     )
-
     print("\n--- Typology Impact Table ---")
     print(typology_df.to_string(index=False))
     return typology_df
@@ -486,20 +487,6 @@ def compute_net_wealth_post_tax(df):
     return df
 
 
-# Inequality metrics like Gini coefficient and top shares
-
-
-def gini(array, weights):
-    df = pd.DataFrame({"x": array, "w": weights}).dropna()
-    df = df.sort_values("x")
-    xw = df["x"] * df["w"]
-    cumw = df["w"].cumsum()
-    cumxw = xw.cumsum()
-    rel_cumw = cumw / cumw.iloc[-1]
-    rel_cumxw = cumxw / cumxw.iloc[-1]
-    return 1 - 2 * np.trapz(rel_cumxw, rel_cumw)
-
-
 def top_share(df, col, weight, pct):
     df = df[[col, weight]].dropna().sort_values(col, ascending=False).copy()
     df["cum_weight"] = df[weight].cumsum()
@@ -512,11 +499,17 @@ def top_share(df, col, weight, pct):
 
 def compute_inequality_metrics(df):
     df = compute_net_wealth_post_tax(df)
-    w = df["facine3"]
+
     metrics = {
-        "Gini Before Tax": gini(df["netwealth_individual"], w),
-        "Gini After Tax (cap)": gini(df["wealth_after_cap"], w),
-        "Gini After Tax (no cap)": gini(df["wealth_after_no_cap"], w),
+        "Gini Before Tax": gini(
+            income="netwealth_individual", weights="facine3", data=df
+        ),
+        "Gini After Tax (cap)": gini(
+            income="wealth_after_cap", weights="facine3", data=df
+        ),
+        "Gini After Tax (no cap)": gini(
+            income="wealth_after_no_cap", weights="facine3", data=df
+        ),
         "Top 10% Share Before": top_share(df, "netwealth_individual", "facine3", 0.10),
         "Top 10% Share After (cap)": top_share(df, "wealth_after_cap", "facine3", 0.10),
         "Top 10% Share After (no cap)": top_share(
