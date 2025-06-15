@@ -9,6 +9,8 @@ from constants import (
     Num_Workers,
     Net_Wealth,
     Income,
+    SPANISH_PIT_2022_BRACKETS,
+    PROGRESSIVE_TAX_BRACKETS,
 )
 from dta_handling import load_data
 from eff_typology import assign_typology
@@ -83,7 +85,7 @@ def compute_legal_exemptions(df):
     return exempt_home_value + business_exempt
 
 
-def simulate_pit_liability(df):
+def simulate_pit_liability(df: pd.DataFrame):
     """
     Simulates Spanish PIT liability using 2022 general income brackets.
     Assumes no deductions or exemptions.
@@ -91,26 +93,9 @@ def simulate_pit_liability(df):
     """
     df = df.copy()
 
-    brackets = [
-        (0, 12450, 0.19),
-        (12450.01, 20200, 0.24),
-        (20200.01, 35200, 0.30),
-        (35200.01, 60000, 0.37),
-        (60000.01, 300000, 0.45),
-        (300000.01, float("inf"), 0.47),
-    ]
-
-    def compute_pit(income):
-        tax = 0
-        for lower, upper, rate in brackets:
-            if income > lower:
-                taxed_amount = min(income, upper) - lower
-                tax += taxed_amount * rate
-            else:
-                break
-        return tax
-
-    df["pit_liability"] = df["income_individual"].apply(compute_pit)
+    df["pit_liability"] = df["income_individual"].apply(
+        lambda amount: calculate_tax_liability(amount, SPANISH_PIT_2022_BRACKETS)
+    )
     return df
 
 
@@ -149,21 +134,15 @@ def apply_income_cap(df, income_cap_rate=0.60, min_wt_share=0.20):
     return df
 
 
-def calculate_progressive_tax(taxable_amount):
-    tax_brackets = [
-        (0, 167129.45, 0.002),
-        (167129.46, 334246.88, 0.003),
-        (334246.89, 668499.75, 0.005),
-        (668499.76, 1336999.51, 0.009),
-        (1336999.52, 2673999.01, 0.013),
-        (2673999.02, 5347998.03, 0.017),
-        (5347998.04, 10695996.06, 0.021),
-        (10695996.07, float("inf"), 0.035),
-    ]
-
+def calculate_tax_liability(
+    amount: float, brackets: list[tuple[float, float, float]]
+) -> float:
+    """
+    Compute total tax liability using progressive brackets.
+    """
     return sum(
-        max(0, min(taxable_amount, upper) - lower) * rate
-        for lower, upper, rate in tax_brackets
+        max(0, min(amount, upper_limit) - lower_limit) * rate
+        for lower_limit, upper_limit, rate in brackets
     )
 
 
@@ -201,7 +180,9 @@ def simulate_household_wealth_tax(
     )
     df["taxable_wealth"] = np.maximum(adjusted_wealth - exemption_amount, 0)
 
-    df["sim_tax"] = df["taxable_wealth"].apply(calculate_progressive_tax)
+    df["sim_tax"] = df["taxable_wealth"].apply(
+        lambda amount: calculate_tax_liability(amount, PROGRESSIVE_TAX_BRACKETS)
+    )
 
     return df
 
