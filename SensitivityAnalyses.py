@@ -4,10 +4,10 @@ from copy import deepcopy
 from dta_handling import load_data
 from eff_typology import assign_typology
 from New_Simulation import (
-    typology_impact_summary,
     simulate_pit_liability,
     apply_wealth_tax_income_cap,
 )
+from reporting import typology_impact_summary
 from preprocessing import apply_valuation_manipulation
 from constants import (
     Residence_Ownership,
