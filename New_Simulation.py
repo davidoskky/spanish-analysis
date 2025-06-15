@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-from pandas import unique
 
 from constants import (
     Residence_Ownership,
@@ -24,17 +23,10 @@ def individual_split(df):
 
     Since income and wealth are reported per household, this function tries to approximate
     per-capita figures by dividing by the number of economic contributors (working adults).
-    Where no earners are reported, household size is used as a fallback proxy.
+    Where no earners are reported, one worker is assumed as a fallback proxy.
     """
-
     df = df.copy()
-
-    earners = df[Num_Workers]
-    hh_size = df[PEOPLE_IN_HOUSEHOLD]
-
-    # Use earners where possible; otherwise, fall back on household size to avoid div/0
-    # Note: using clip to prevent very small divisor values (at least one economic agent)
-    adult_split_factor = earners.where(earners != 0, hh_size).clip(lower=1)
+    adult_split_factor = df[Num_Workers].clip(lower=1)
 
     df["netwealth_individual"] = df[Net_Wealth] / adult_split_factor
     df["income_individual"] = df[Income] / adult_split_factor
