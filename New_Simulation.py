@@ -2,14 +2,9 @@ import pandas as pd
 import numpy as np
 
 from constants import (
-    Residence_Ownership,
-    Business_Value,
-    Business_Ownership,
-    Primary_Residence,
-    Num_Workers,
     Net_Wealth,
-    SPANISH_PIT_2022_BRACKETS,
     PROGRESSIVE_TAX_BRACKETS,
+    NON_TAXABLE_ASSET_COLS,
 )
 from dta_handling import load_data
 from eff_typology import assign_typology
@@ -17,48 +12,7 @@ from eff_typology import assign_typology
 from ineqpy.inequality import gini
 
 from preprocessing import individual_split, apply_valuation_manipulation
-
-
-def compute_legal_exemptions(df):
-    """
-    Estimates total legal exemptions that can be subtracted from taxable wealth.
-
-    Two main categories are considered:
-    - Primary residence exemption (if owned)
-    - Business asset exemption (applied probabilistically)
-
-    The idea is to replicate legal treatments where exemptions reduce the tax base
-    before applying any tax rates.
-    """
-
-    # Primary residence exemption
-    owns_home = df[Residence_Ownership] == "Ownership"
-    primary_home_val = df[Primary_Residence].fillna(0)
-    exempt_home_value = np.where(owns_home, np.minimum(primary_home_val, 300_000), 0)
-
-    # Business exemption if household has declared business value
-    business_exemption_rate = 0.30  # Based on literature(Duran-Cabré et al. 2021)
-    has_business_value = df[Business_Ownership] == 1
-    apply_business_exempt = (
-        np.random.rand(len(df)) < business_exemption_rate
-    ) & has_business_value
-    business_exempt = np.where(apply_business_exempt, df[Business_Value].fillna(0), 0)
-
-    return exempt_home_value + business_exempt
-
-
-def simulate_pit_liability(df: pd.DataFrame):
-    """
-    Simulates Spanish PIT liability using 2022 general income brackets.
-    Assumes no deductions or exemptions.
-
-    """
-    df = df.copy()
-
-    df["pit_liability"] = df["income_individual"].apply(
-        lambda amount: calculate_tax_liability(amount, SPANISH_PIT_2022_BRACKETS)
-    )
-    return df
+from wealth_tax import simulate_household_wealth_tax, simulate_pit_liability
 
 
 def apply_wealth_tax_income_cap(
@@ -109,47 +63,6 @@ def calculate_tax_liability(
         max(0, min(amount, upper_limit) - lower_limit) * rate
         for lower_limit, upper_limit, rate in brackets
     )
-
-
-def simulate_household_wealth_tax(
-    df: pd.DataFrame, exemption_amount: int = 700_000
-) -> pd.DataFrame:
-    """
-    Simulate a progressive wealth tax based on individual net wealth,
-    taking into account legal exemptions and non-taxable assets.
-
-    Returns:
-    -------
-    pd.DataFrame
-        Original DataFrame with added columns:
-            - exempt_total: legal exemption calculated for each individual.
-            - taxable_wealth: wealth subject to tax after exemptions.
-            - sim_tax: simulated tax owed under a progressive tax system.
-    """
-
-    df = df.copy()
-
-    df["exempt_total"] = compute_legal_exemptions(df)
-
-    earners = df[Num_Workers]
-    adult_equivalent = earners.clip(lower=1)
-
-    # Non-taxable assets: art, vehicles, pension funds
-    non_taxable_assets = (
-        df["p2_71"].fillna(0) + df["timpvehic"].fillna(0) + df["p2_84"].fillna(0)
-    ) / adult_equivalent
-
-    # Taxable wealth = net wealth - non-taxable assets - legal exemptions - base exemption
-    adjusted_wealth = (
-        df["netwealth_individual"] - non_taxable_assets - df["exempt_total"]
-    )
-    df["taxable_wealth"] = np.maximum(adjusted_wealth - exemption_amount, 0)
-
-    df["sim_tax"] = df["taxable_wealth"].apply(
-        lambda amount: calculate_tax_liability(amount, PROGRESSIVE_TAX_BRACKETS)
-    )
-
-    return df
 
 
 def assign_behavioral_erosion_from_elasticity(
@@ -468,7 +381,12 @@ def main():
     df = individual_split(df)
     df["wealth_rank"] = df["riquezanet"].rank(pct=True)
 
-    df = simulate_household_wealth_tax(df, exemption_amount=700_000)
+    df = simulate_household_wealth_tax(
+        df,
+        exemption_amount=700_000,
+        brackets=PROGRESSIVE_TAX_BRACKETS,
+        asset_cols=NON_TAXABLE_ASSET_COLS,
+    )
     df = apply_valuation_manipulation(df)
     df = apply_behavioral_response(df)
     df = simulate_pit_liability(df)
