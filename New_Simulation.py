@@ -7,7 +7,6 @@ from constants import (
     Business_Ownership,
     Primary_Residence,
     Num_Workers,
-    PEOPLE_IN_HOUSEHOLD,
     Net_Wealth,
     Income,
 )
@@ -150,10 +149,8 @@ def apply_income_cap(df, income_cap_rate=0.60, min_wt_share=0.20):
     return df
 
 
-def simulate_wealth_tax(df, exemption=700_000, income_cap_rate=0.6):
-    df = df.copy()
-
-    brackets = [
+def calculate_progressive_tax(taxable_amount):
+    tax_brackets = [
         (0, 167129.45, 0.002),
         (167129.46, 334246.88, 0.003),
         (334246.89, 668499.75, 0.005),
@@ -164,30 +161,47 @@ def simulate_wealth_tax(df, exemption=700_000, income_cap_rate=0.6):
         (10695996.07, float("inf"), 0.035),
     ]
 
-    def compute_tax(taxable):
-        tax = 0
-        for lower, upper, rate in brackets:
-            if taxable > lower:
-                taxed_amount = min(taxable, upper) - lower
-                tax += taxed_amount * rate
-            else:
-                break
-        return tax
+    return sum(
+        max(0, min(taxable_amount, upper) - lower) * rate
+        for lower, upper, rate in tax_brackets
+    )
+
+
+def simulate_household_wealth_tax(
+    df: pd.DataFrame, exemption_amount: int = 700_000
+) -> pd.DataFrame:
+    """
+    Simulate a progressive wealth tax based on individual net wealth,
+    taking into account legal exemptions and non-taxable assets.
+
+    Returns:
+    -------
+    pd.DataFrame
+        Original DataFrame with added columns:
+            - exempt_total: legal exemption calculated for each individual.
+            - taxable_wealth: wealth subject to tax after exemptions.
+            - sim_tax: simulated tax owed under a progressive tax system.
+    """
+
+    df = df.copy()
 
     df["exempt_total"] = compute_legal_exemptions(df)
 
-    earners = pd.to_numeric(df["nnumadtrab"], errors="coerce").fillna(0)
-    household_size = df[PEOPLE_IN_HOUSEHOLD]
-    adult_split_factor = earners.where(earners != 0, household_size).clip(lower=1)
+    earners = df[Num_Workers]
+    adult_equivalent = earners.clip(lower=1)
 
-    # non-taxable assets = art, antiques, vehicles, and pension funds
+    # Non-taxable assets: art, vehicles, pension funds
     non_taxable_assets = (
         df["p2_71"].fillna(0) + df["timpvehic"].fillna(0) + df["p2_84"].fillna(0)
-    ) / adult_split_factor
+    ) / adult_equivalent
 
-    base = df["netwealth_individual"] - non_taxable_assets - df["exempt_total"]
-    df["taxable_wealth"] = np.maximum(base - exemption, 0)
-    df["sim_tax"] = df["taxable_wealth"].apply(compute_tax)
+    # Taxable wealth = net wealth - non-taxable assets - legal exemptions - base exemption
+    adjusted_wealth = (
+        df["netwealth_individual"] - non_taxable_assets - df["exempt_total"]
+    )
+    df["taxable_wealth"] = np.maximum(adjusted_wealth - exemption_amount, 0)
+
+    df["sim_tax"] = df["taxable_wealth"].apply(calculate_progressive_tax)
 
     return df
 
@@ -539,7 +553,7 @@ def main():
     df["wealth_rank"] = df["riquezanet"].rank(pct=True)
 
     df = apply_valuation_manipulation(df)
-    df = simulate_wealth_tax(df)
+    df = simulate_household_wealth_tax(df)
     df = apply_behavioral_response(df)
     df = simulate_pit_liability(df)
     df = apply_income_cap(df)
