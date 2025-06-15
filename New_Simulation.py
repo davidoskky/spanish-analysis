@@ -509,7 +509,6 @@ def main():
     df = individual_split(df)
     df["wealth_rank"] = df["riquezanet"].rank(pct=True)
 
-    df = apply_valuation_manipulation(df)
     df = simulate_wealth_tax(df)                     
     df = apply_behavioral_response(df)     
     df = simulate_pit_liability(df)
