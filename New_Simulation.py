@@ -4,6 +4,7 @@ import numpy as np
 from constants import (
     PROGRESSIVE_TAX_BRACKETS,
     NON_TAXABLE_ASSET_COLS,
+    Net_Wealth,
 )
 from dta_handling import load_data
 from eff_typology import assign_typology
@@ -15,6 +16,8 @@ from reporting import (
     typology_impact_summary,
     generate_summary_table,
     compute_inequality_metrics,
+    payer_coverage,
+    loss_breakdown,
 )
 from wealth_tax import simulate_household_wealth_tax, simulate_pit_liability
 
@@ -186,10 +189,16 @@ def compute_net_wealth_post_tax(df):
     return df
 
 
+def check_valid_input_data(df):
+    assert not (df[Net_Wealth].isna()).any()
+
+
 def main():
     np.random.seed(42)
 
     df = load_data()
+
+    check_valid_input_data(df)
     df = assign_typology(df)
 
     df = individual_split(df)
@@ -225,6 +234,8 @@ def main():
     df = compute_net_wealth_post_tax(df)
 
     compute_inequality_metrics(df)
+    payer_coverage(df)
+    loss_breakdown(df)
 
 
 if __name__ == "__main__":

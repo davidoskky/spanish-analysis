@@ -157,3 +157,21 @@ def compute_inequality_metrics(df):
     for k, v in metrics.items():
         print(f"{k}: {v:.4%}")
     return metrics
+
+
+def payer_coverage(df):
+    payers = (df["final_tax"] > 0).mean()
+    print(f"Coverage: {payers:.2%} of population pays any WT.")
+
+
+def loss_breakdown(df):
+    gross = (df["sim_tax"] * df["facine3"]).sum()
+    cap_loss = (df["sim_tax"] - df["final_tax"]) * df["facine3"]
+    cap_loss = cap_loss.sum()
+    regional_loss = ((df["final_tax"] - df["adjusted_final_tax"]) * df["facine3"]).sum()
+    behav_loss = (
+        (df["taxable_wealth"] - df["taxable_wealth_eroded"]) * df["facine3"]
+    ).sum()
+    print(f"Cap loss:      {cap_loss / gross:.1%} of gross")
+    print(f"Regional loss: {regional_loss / gross:.1%}")
+    print(f"Behavioural:   {behav_loss / gross:.1%}")
