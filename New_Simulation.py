@@ -295,11 +295,16 @@ def simulate_migration_attrition(
     return df
 
 
-def apply_adjustments(df):
+def apply_regional_tax_adjustments(
+    df: pd.DataFrame, tax_reduction: float = 0.3
+) -> pd.DataFrame:
+    """Adjust taxable wealth and tax values to account for regional exemptions
+    in the Spanish wealth tax system, based on estimates from Durán-Cabré et al. (2021).
+
+    Assumes a fixed 30% reduction due to regional policies in areas like Madrid, Galicia, and Andalucía.
+    """
     df = df.copy()
-    # Assumptions based on academic literature (Durán-Cabré et al. (2021):
-    REGIONAL_REDUCTION = 0.30  # 30% lost due to regional exemptions (e.g. Madrid, Galicia, Andalucía, etc.)
-    adjustment_factor = 1 - REGIONAL_REDUCTION
+    adjustment_factor = 1 - tax_reduction
 
     df["adjusted_taxable_wealth"] = df["taxable_wealth_eroded"] * adjustment_factor
     df["adjusted_sim_tax"] = df["sim_tax"] * adjustment_factor
@@ -547,7 +552,7 @@ def main():
     df = apply_wealth_tax_income_cap(df)
     df = simulate_migration_attrition(df)
     print(df["Migration_Exit"].value_counts())
-    df = apply_adjustments(df)
+    df = apply_regional_tax_adjustments(df)
 
     generate_summary_table(df)
     typology_impact_summary(df)
