@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+from pandas import unique
+
 from constants import (
     Residence_Ownership,
     Business_Value,
@@ -27,8 +29,7 @@ def individual_split(df):
 
     df = df.copy()
 
-    # Approximate the number of working individuals in the household
-    earners = pd.to_numeric(df[Num_Workers], errors="coerce").fillna(0)
+    earners = df[Num_Workers]
     hh_size = df[PEOPLE_IN_HOUSEHOLD]
 
     # Use earners where possible; otherwise, fall back on household size to avoid div/0
