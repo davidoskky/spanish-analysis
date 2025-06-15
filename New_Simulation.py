@@ -314,8 +314,6 @@ def top_share(df, col, weight, pct):
 
 
 def compute_inequality_metrics(df):
-    df = compute_net_wealth_post_tax(df)
-
     metrics = {
         "Gini Before Tax": gini(
             income="netwealth_individual", weights="facine3", data=df
@@ -379,6 +377,7 @@ def main():
 
     df["wealth_after_cap"] = df["netwealth_individual"] - df["final_tax"].fillna(0)
     df["wealth_after_no_cap"] = df["netwealth_individual"] - df["sim_tax"].fillna(0)
+    df = compute_net_wealth_post_tax(df)
 
     compute_inequality_metrics(df)
 
