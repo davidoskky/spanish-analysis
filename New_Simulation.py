@@ -14,8 +14,6 @@ from constants import (
 )
 from dta_handling import load_data
 from eff_typology import assign_typology
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 from ineqpy.inequality import gini
 
@@ -385,35 +383,6 @@ def typology_impact_summary(df, weight_col="facine3"):
     return typology_df
 
 
-def plot_tax_rate_by_wealth(df):
-    df_sorted = df.sort_values("wealth_rank").reset_index(drop=True)
-    df_sorted["eff_tax_rate"] = df_sorted["adjusted_final_tax"] / (
-        df_sorted["netwealth_individual"] + 1e-6
-    )
-    plt.figure(figsize=(10, 6))
-    sns.lineplot(x="wealth_rank", y="eff_tax_rate", data=df_sorted)
-    plt.title("Effective Tax Rate by Wealth Percentile")
-    plt.xlabel("Wealth Percentile")
-    plt.ylabel("Effective Tax Rate")
-    plt.grid(True)
-    plt.show()
-
-
-def plot_cap_relief_by_income(df):
-    df = df.copy()
-    df["income_decile"] = pd.qcut(
-        df["income_individual"], 10, labels=[f"D{i}" for i in range(1, 11)]
-    )
-    summary = df.groupby("income_decile")["cap_relief"].mean().reset_index()
-    plt.figure(figsize=(10, 6))
-    sns.barplot(x="income_decile", y="cap_relief", data=summary)
-    plt.title("Average Cap Relief by Income Decile")
-    plt.xlabel("Income Decile")
-    plt.ylabel("Average Cap Relief (EUR)")
-    plt.grid(True)
-    plt.show()
-
-
 def compute_effective_tax_rates(df):
     df = df.copy()
     df["eff_tax_rate"] = df["adjusted_final_tax"] / (df["netwealth_individual"] + 1e-6)
@@ -539,7 +508,6 @@ def main():
 
     df = simulate_household_wealth_tax(df, exemption_amount=700_000)
     df = apply_valuation_manipulation(df)
-    df = simulate_household_wealth_tax(df)
     df = apply_behavioral_response(df)
     df = simulate_pit_liability(df)
     df = apply_wealth_tax_income_cap(df)
