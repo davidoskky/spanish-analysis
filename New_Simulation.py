@@ -270,7 +270,12 @@ def apply_behavioral_response(df, ref_tax_rate=0.004):
     return df
 
 
-def simulate_migration_attrition(df, top_pct=0.995, base_prob=0.04, elasticity=1.76):
+def simulate_migration_attrition(
+    df: pd.DataFrame,
+    wealth_threshold: float = 0.995,
+    base_migration_prob: float = 0.04,
+    elasticity: float = 1.76,
+) -> pd.DataFrame:
     """
     Simulates tax-motivated migration or wealth erosion among top wealth holders,
     based on behavioral responses modeled in Jakobsen et al. (2020).
@@ -290,20 +295,18 @@ def simulate_migration_attrition(df, top_pct=0.995, base_prob=0.04, elasticity=1
     df = df.copy()
     df["Migration_Exit"] = False
 
-    eff_tax_rate = df["final_tax"] / (df["netwealth_individual"] + 1e-6)
-    net_of_tax = 1 - eff_tax_rate
+    net_of_tax = 1 - df["final_tax"] / (df["netwealth_individual"] + 1e-6)
 
     # migration probability using exponential behavioral model ---
     # Based on stock elasticity to net-of-tax rate
-    exit_prob = base_prob * np.exp(elasticity * (1 - net_of_tax))
+    exit_prob = base_migration_prob * np.exp(elasticity * (1 - net_of_tax))
 
-    top_wealth_group = df["wealth_rank"] > top_pct
+    # TODO: Check whether it is correct that the probability applies to the whole population and not just to the top wealth group
+    top_wealth_group = df["wealth_rank"] > wealth_threshold
     will_migrate = (np.random.rand(len(df)) < exit_prob) & top_wealth_group
 
     df.loc[will_migrate, "Migration_Exit"] = True
-    df.loc[will_migrate, ["sim_tax", "final_tax", "taxable_wealth_eroded"]] = (
-        0  # All tax revenue lost
-    )
+    df.loc[will_migrate, ["sim_tax", "final_tax", "taxable_wealth_eroded"]] = 0
 
     return df
 
