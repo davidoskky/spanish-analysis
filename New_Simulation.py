@@ -280,6 +280,7 @@ def simulate_migration_attrition(df, top_pct=0.995, base_prob=0.04, elasticity=1
     df.loc[will_migrate, ["sim_tax", "final_tax", "taxable_wealth_eroded"]] = 0  # All tax revenue lost
 
     return df
+
 def apply_adjustments(df):
     df = df.copy()
     # Assumptions based on academic literature (Durán-Cabré et al. (2021):
