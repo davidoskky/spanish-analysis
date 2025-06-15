@@ -74,41 +74,75 @@ def compute_legal_exemptions(df):
 
     return exempt_home_value + business_exempt
 
+def simulate_pit_liability(df):
+    """
+    Simulates Spanish PIT liability using 2022 general income brackets.
+    Assumes no deductions or exemptions.
+
+    """
+    import numpy as np
+
+    df = df.copy()
+
+    brackets = [
+        (0, 12450, 0.19),
+        (12450.01, 20200, 0.24),
+        (20200.01, 35200, 0.30),
+        (35200.01, 60000, 0.37),
+        (60000.01, 300000, 0.45),
+        (300000.01, float("inf"), 0.47)
+    ]
+
+    def compute_pit(income):
+        tax = 0
+        for lower, upper, rate in brackets:
+            if income > lower:
+                taxed_amount = min(income, upper) - lower
+                tax += taxed_amount * rate
+            else:
+                break
+        return tax
+
+    df["pit_liability"] = df["income_individual"].apply(compute_pit)
+    return df
+
 def apply_income_cap(df, income_cap_rate=0.60, min_wt_share=0.20):
     """
-    Implements an income-based ceiling on individual tax liability.
+    Applies Spain's income-based ceiling to the wealth tax (WT).
 
-    This function ensures that no individual pays more than a fixed proportion 
-    of their income in simulated wealth taxes, with a safeguard to preserve 
-    a minimum portion of the original tax estimate.
+    Ensures that the sum of PIT and WT does not exceed 60% of PIT base.
+    If it does, WT is reduced—but not below 20% of its original amount.
 
     Parameters:
-    - income_cap_rate (float): Maximum fraction of income an individual can be taxed (default = 60%)
-    - min_wt_share (float): Minimum share of original tax that must still be paid (default = 20%)
+    - income_cap_rate: ceiling threshold (default = 60%)
+    - min_wt_share: minimum WT share to preserve (default = 20%)
 
     Returns:
-    - df (DataFrame): Modified DataFrame including capped tax amounts and intermediate calculations
+    - df: DataFrame with capped WT and relief columns
     """
     df = df.copy()
 
-    cap_threshold = df["income_individual"] * income_cap_rate
+    pit_base_cap = df["income_individual"] * income_cap_rate
     wt = df["sim_tax"]
+    pit = df["pit_liability"]
 
-    df["cap_applicable"] = wt > cap_threshold 
+    total_tax = wt + pit
+    over_cap = total_tax > pit_base_cap
 
-    excess = wt - cap_threshold
     max_relief = wt * (1 - min_wt_share)
-    relief = np.where(df["cap_applicable"], np.minimum(excess, max_relief), 0.0)
 
-    df["cap_relief"] = relief
-    df["final_tax"] = wt - relief
+    excess = total_tax - pit_base_cap
+    wt_relief = np.minimum(excess, max_relief)
+    wt_relief = np.where(over_cap, wt_relief, 0.0)
+
+    df["cap_relief"] = wt_relief
+    df["final_tax"] = wt - wt_relief
 
     return df
 
 def simulate_wealth_tax(df, exemption=700_000, income_cap_rate=0.6):
     df = df.copy()
 
-    # tax rates and brackets based on the Spanish wealth tax structure
     brackets = [
         (0, 167129.45, 0.002),
         (167129.46, 334246.88, 0.003),
@@ -136,13 +170,13 @@ def simulate_wealth_tax(df, exemption=700_000, income_cap_rate=0.6):
     household_size = df[PEOPLE_IN_HOUSEHOLD]
     adult_split_factor = earners.where(earners != 0, household_size).clip(lower=1)
 
-#  non-taxable assets = art, antiques, vehicles, and pension funds
+# non-taxable assets = art, antiques, vehicles, and pension funds
     non_taxable_assets = (
-    df["p2_71"].fillna(0) +
-    df["timpvehic"].fillna(0) +
-    df["p2_84"].fillna(0)
-) / adult_split_factor
-    # Calculate taxable wealth
+        df["p2_71"].fillna(0) +
+        df["timpvehic"].fillna(0) +
+        df["p2_84"].fillna(0)
+    ) / adult_split_factor
+
     base = df["netwealth_individual"] - non_taxable_assets - df["exempt_total"]
     df["taxable_wealth"] = np.maximum(base - exemption, 0)
     df["sim_tax"] = df["taxable_wealth"].apply(compute_tax)
@@ -250,7 +284,7 @@ def apply_adjustments(df):
     df = df.copy()
     # Assumptions based on academic literature (Durán-Cabré et al. (2021):
     REGIONAL_REDUCTION = (
-    0.33  # 33% lost due to regional exemptions (e.g. Madrid, Galicia, Andalucía, etc.)
+    0.30  # 30% lost due to regional exemptions (e.g. Madrid, Galicia, Andalucía, etc.)
 )
     adjustment_factor = (1 - REGIONAL_REDUCTION)
 
@@ -476,7 +510,8 @@ def main():
 
     df = apply_valuation_manipulation(df)
     df = simulate_wealth_tax(df)                     
-    df = apply_behavioral_response(df)            
+    df = apply_behavioral_response(df)     
+    df = simulate_pit_liability(df)
     df = apply_income_cap(df) 
     df = simulate_migration_attrition(df) 
     print(df["Migration_Exit"].value_counts())
