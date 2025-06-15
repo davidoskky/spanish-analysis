@@ -51,8 +51,8 @@ def apply_valuation_manipulation(df, real_estate_discount=0.15, business_discoun
     - business_discount: fraction to reduce business asset values by (default: 20%)
     """
     df = df.copy()
-    df[Primary_Residence] = df[Primary_Residence].fillna(0) * (1 - real_estate_discount)
-    df[Business_Value] = df[Business_Value].fillna(0) * (1 - business_discount)
+    df[Primary_Residence] = df[Primary_Residence] * (1 - real_estate_discount)
+    df[Business_Value] = df[Business_Value] * (1 - business_discount)
     return df
 
 
