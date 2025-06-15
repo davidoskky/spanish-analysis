@@ -99,12 +99,15 @@ def simulate_pit_liability(df: pd.DataFrame):
     return df
 
 
-def apply_income_cap(df, income_cap_rate=0.60, min_wt_share=0.20):
+def apply_wealth_tax_income_cap(
+    df: pd.DataFrame, income_cap_rate: float = 0.60, min_wealth_tax_share: float = 0.20
+):
     """
-    Applies Spain's income-based ceiling to the wealth tax (WT).
+    Apply an income-based cap to the wealth tax (WT) as per Spanish tax rules.
 
-    Ensures that the sum of PIT and WT does not exceed 60% of PIT base.
-    If it does, WT is reduced—but not below 20% of its original amount.
+    Ensures that the total tax burden (PIT + WT) does not exceed a set percentage
+    (e.g. 60%) of an individual's income. If it does, the WT is reduced—but not
+    below a minimum share (e.g. 20%) of the original wealth tax.
 
     Parameters:
     - income_cap_rate: ceiling threshold (default = 60%)
@@ -115,21 +118,21 @@ def apply_income_cap(df, income_cap_rate=0.60, min_wt_share=0.20):
     """
     df = df.copy()
 
-    pit_base_cap = df["income_individual"] * income_cap_rate
-    wt = df["sim_tax"]
-    pit = df["pit_liability"]
+    income_limit = df["income_individual"] * income_cap_rate
+    wealth_tax = df["sim_tax"]
+    income_tax = df["pit_liability"]
 
-    total_tax = wt + pit
-    over_cap = total_tax > pit_base_cap
+    total_tax = wealth_tax + income_tax
+    over_cap = total_tax > income_limit
 
-    max_relief = wt * (1 - min_wt_share)
+    max_allowed_relief = wealth_tax * (1 - min_wealth_tax_share)
 
-    excess = total_tax - pit_base_cap
-    wt_relief = np.minimum(excess, max_relief)
+    excess = total_tax - income_limit
+    wt_relief = np.minimum(excess, max_allowed_relief)
     wt_relief = np.where(over_cap, wt_relief, 0.0)
 
     df["cap_relief"] = wt_relief
-    df["final_tax"] = wt - wt_relief
+    df["final_tax"] = wealth_tax - wt_relief
 
     return df
 
@@ -536,16 +539,12 @@ def main():
     df = individual_split(df)
     df["wealth_rank"] = df["riquezanet"].rank(pct=True)
 
-<<<<<<< HEAD
-    df = simulate_wealth_tax(df)                     
-    df = apply_behavioral_response(df)     
-=======
+    df = simulate_household_wealth_tax(df, exemption_amount=700_000)
     df = apply_valuation_manipulation(df)
     df = simulate_household_wealth_tax(df)
     df = apply_behavioral_response(df)
->>>>>>> 295d5027947f7ce2ad9a4c72411a312d80ed984c
     df = simulate_pit_liability(df)
-    df = apply_income_cap(df)
+    df = apply_wealth_tax_income_cap(df)
     df = simulate_migration_attrition(df)
     print(df["Migration_Exit"].value_counts())
     df = apply_adjustments(df)
