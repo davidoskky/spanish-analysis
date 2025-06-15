@@ -11,7 +11,7 @@ from constants import (
     Income,
 )
 from dta_handling import load_data
-from eff_typology import assign_typology1
+from eff_typology import assign_typology
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -540,7 +540,7 @@ def main():
     np.random.seed(42)
 
     df = load_data()
-    df = assign_typology1(df)
+    df = assign_typology(df)
 
     df = individual_split(df)
     df["wealth_rank"] = df["riquezanet"].rank(pct=True)
