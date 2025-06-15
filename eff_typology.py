@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-from dta_handling import df_eff
 
 
 def assign_typology(df):
