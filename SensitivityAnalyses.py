@@ -7,7 +7,7 @@ from New_Simulation import (
     apply_valuation_manipulation,
     typology_impact_summary,
     simulate_pit_liability,
-    apply_income_cap,
+    apply_wealth_tax_income_cap,
 )
 from constants import (
     Residence_Ownership,
@@ -228,7 +228,7 @@ def main():
         df = apply_valuation_manipulation(df, re_disc, biz_disc)
         sim_df = simulate_wealth_tax_sensitivity(df)
         sim_df = simulate_pit_liability(sim_df)
-        sim_df = apply_income_cap(sim_df)
+        sim_df = apply_wealth_tax_income_cap(sim_df)
         summary_tables[f"summary_valuation_{re_disc}_{biz_disc}"] = revenue_summary(
             sim_df
         )
@@ -241,7 +241,7 @@ def main():
         df = apply_income_split(df)
         sim_df = simulate_wealth_tax_sensitivity(df, elasticity=e)
         sim_df = simulate_pit_liability(sim_df)
-        sim_df = apply_income_cap(sim_df)
+        sim_df = apply_wealth_tax_income_cap(sim_df)
         summary_tables[f"summary_elasticity_{e}"] = revenue_summary(sim_df)
         typology_impact_summary(sim_df)
         print(f"\nScenario: elasticity_{e}")
@@ -252,7 +252,7 @@ def main():
         df = apply_income_split(df)
         sim_df = simulate_wealth_tax_sensitivity(df)
         sim_df = simulate_pit_liability(sim_df)
-        sim_df = apply_income_cap(sim_df, income_cap_rate=cap)
+        sim_df = apply_wealth_tax_income_cap(sim_df, income_cap_rate=cap)
         summary_tables[f"summary_cap_{cap}"] = revenue_summary(sim_df)
         typology_impact_summary(sim_df)
         print(f"\nScenario: cap_{cap}")
@@ -263,7 +263,7 @@ def main():
         df = apply_income_split(df)
         sim_df = simulate_wealth_tax_sensitivity(df)
         sim_df = simulate_pit_liability(sim_df)
-        sim_df = apply_income_cap(sim_df)
+        sim_df = apply_wealth_tax_income_cap(sim_df)
         summary_tables[f"summary_split_{method}"] = revenue_summary(sim_df)
         typology_impact_summary(sim_df)
         print(f"\nScenario: split_{method}")
@@ -274,7 +274,7 @@ def main():
         df = apply_income_split(df)
         sim_df = simulate_wealth_tax_sensitivity(df, exemption=threshold)
         sim_df = simulate_pit_liability(sim_df)
-        sim_df = apply_income_cap(sim_df)
+        sim_df = apply_wealth_tax_income_cap(sim_df)
         summary_tables[f"summary_exemption_{threshold}"] = revenue_summary(sim_df)
         typology_impact_summary(sim_df)
         print(f"\nScenario: exemption_{threshold}")

@@ -9,6 +9,8 @@ from constants import (
     Num_Workers,
     Net_Wealth,
     Income,
+    SPANISH_PIT_2022_BRACKETS,
+    PROGRESSIVE_TAX_BRACKETS,
 )
 from dta_handling import load_data
 from eff_typology import assign_typology
@@ -83,7 +85,7 @@ def compute_legal_exemptions(df):
     return exempt_home_value + business_exempt
 
 
-def simulate_pit_liability(df):
+def simulate_pit_liability(df: pd.DataFrame):
     """
     Simulates Spanish PIT liability using 2022 general income brackets.
     Assumes no deductions or exemptions.
@@ -91,35 +93,21 @@ def simulate_pit_liability(df):
     """
     df = df.copy()
 
-    brackets = [
-        (0, 12450, 0.19),
-        (12450.01, 20200, 0.24),
-        (20200.01, 35200, 0.30),
-        (35200.01, 60000, 0.37),
-        (60000.01, 300000, 0.45),
-        (300000.01, float("inf"), 0.47),
-    ]
-
-    def compute_pit(income):
-        tax = 0
-        for lower, upper, rate in brackets:
-            if income > lower:
-                taxed_amount = min(income, upper) - lower
-                tax += taxed_amount * rate
-            else:
-                break
-        return tax
-
-    df["pit_liability"] = df["income_individual"].apply(compute_pit)
+    df["pit_liability"] = df["income_individual"].apply(
+        lambda amount: calculate_tax_liability(amount, SPANISH_PIT_2022_BRACKETS)
+    )
     return df
 
 
-def apply_income_cap(df, income_cap_rate=0.60, min_wt_share=0.20):
+def apply_wealth_tax_income_cap(
+    df: pd.DataFrame, income_cap_rate: float = 0.60, min_wealth_tax_share: float = 0.20
+):
     """
-    Applies Spain's income-based ceiling to the wealth tax (WT).
+    Apply an income-based cap to the wealth tax (WT) as per Spanish tax rules.
 
-    Ensures that the sum of PIT and WT does not exceed 60% of PIT base.
-    If it does, WT is reduced—but not below 20% of its original amount.
+    Ensures that the total tax burden (PIT + WT) does not exceed a set percentage
+    (e.g. 60%) of an individual's income. If it does, the WT is reduced—but not
+    below a minimum share (e.g. 20%) of the original wealth tax.
 
     Parameters:
     - income_cap_rate: ceiling threshold (default = 60%)
@@ -130,40 +118,34 @@ def apply_income_cap(df, income_cap_rate=0.60, min_wt_share=0.20):
     """
     df = df.copy()
 
-    pit_base_cap = df["income_individual"] * income_cap_rate
-    wt = df["sim_tax"]
-    pit = df["pit_liability"]
+    income_limit = df["income_individual"] * income_cap_rate
+    wealth_tax = df["sim_tax"]
+    income_tax = df["pit_liability"]
 
-    total_tax = wt + pit
-    over_cap = total_tax > pit_base_cap
+    total_tax = wealth_tax + income_tax
+    over_cap = total_tax > income_limit
 
-    max_relief = wt * (1 - min_wt_share)
+    max_allowed_relief = wealth_tax * (1 - min_wealth_tax_share)
 
-    excess = total_tax - pit_base_cap
-    wt_relief = np.minimum(excess, max_relief)
+    excess = total_tax - income_limit
+    wt_relief = np.minimum(excess, max_allowed_relief)
     wt_relief = np.where(over_cap, wt_relief, 0.0)
 
     df["cap_relief"] = wt_relief
-    df["final_tax"] = wt - wt_relief
+    df["final_tax"] = wealth_tax - wt_relief
 
     return df
 
 
-def calculate_progressive_tax(taxable_amount):
-    tax_brackets = [
-        (0, 167129.45, 0.002),
-        (167129.46, 334246.88, 0.003),
-        (334246.89, 668499.75, 0.005),
-        (668499.76, 1336999.51, 0.009),
-        (1336999.52, 2673999.01, 0.013),
-        (2673999.02, 5347998.03, 0.017),
-        (5347998.04, 10695996.06, 0.021),
-        (10695996.07, float("inf"), 0.035),
-    ]
-
+def calculate_tax_liability(
+    amount: float, brackets: list[tuple[float, float, float]]
+) -> float:
+    """
+    Compute total tax liability using progressive brackets.
+    """
     return sum(
-        max(0, min(taxable_amount, upper) - lower) * rate
-        for lower, upper, rate in tax_brackets
+        max(0, min(amount, upper_limit) - lower_limit) * rate
+        for lower_limit, upper_limit, rate in brackets
     )
 
 
@@ -201,7 +183,9 @@ def simulate_household_wealth_tax(
     )
     df["taxable_wealth"] = np.maximum(adjusted_wealth - exemption_amount, 0)
 
-    df["sim_tax"] = df["taxable_wealth"].apply(calculate_progressive_tax)
+    df["sim_tax"] = df["taxable_wealth"].apply(
+        lambda amount: calculate_tax_liability(amount, PROGRESSIVE_TAX_BRACKETS)
+    )
 
     return df
 
@@ -270,7 +254,12 @@ def apply_behavioral_response(df, ref_tax_rate=0.004):
     return df
 
 
-def simulate_migration_attrition(df, top_pct=0.995, base_prob=0.04, elasticity=1.76):
+def simulate_migration_attrition(
+    df: pd.DataFrame,
+    wealth_threshold: float = 0.995,
+    base_migration_prob: float = 0.04,
+    elasticity: float = 1.76,
+) -> pd.DataFrame:
     """
     Simulates tax-motivated migration or wealth erosion among top wealth holders,
     based on behavioral responses modeled in Jakobsen et al. (2020).
@@ -290,20 +279,18 @@ def simulate_migration_attrition(df, top_pct=0.995, base_prob=0.04, elasticity=1
     df = df.copy()
     df["Migration_Exit"] = False
 
-    eff_tax_rate = df["final_tax"] / (df["netwealth_individual"] + 1e-6)
-    net_of_tax = 1 - eff_tax_rate
+    net_of_tax = 1 - df["final_tax"] / (df["netwealth_individual"] + 1e-6)
 
     # migration probability using exponential behavioral model ---
     # Based on stock elasticity to net-of-tax rate
-    exit_prob = base_prob * np.exp(elasticity * (1 - net_of_tax))
+    exit_prob = base_migration_prob * np.exp(elasticity * (1 - net_of_tax))
 
-    top_wealth_group = df["wealth_rank"] > top_pct
+    # TODO: Check whether it is correct that the probability applies to the whole population and not just to the top wealth group
+    top_wealth_group = df["wealth_rank"] > wealth_threshold
     will_migrate = (np.random.rand(len(df)) < exit_prob) & top_wealth_group
 
     df.loc[will_migrate, "Migration_Exit"] = True
-    df.loc[will_migrate, ["sim_tax", "final_tax", "taxable_wealth_eroded"]] = (
-        0  # All tax revenue lost
-    )
+    df.loc[will_migrate, ["sim_tax", "final_tax", "taxable_wealth_eroded"]] = 0
 
     return df
 
@@ -552,16 +539,12 @@ def main():
     df = individual_split(df)
     df["wealth_rank"] = df["riquezanet"].rank(pct=True)
 
-<<<<<<< HEAD
-    df = simulate_wealth_tax(df)                     
-    df = apply_behavioral_response(df)     
-=======
+    df = simulate_household_wealth_tax(df, exemption_amount=700_000)
     df = apply_valuation_manipulation(df)
     df = simulate_household_wealth_tax(df)
     df = apply_behavioral_response(df)
->>>>>>> 295d5027947f7ce2ad9a4c72411a312d80ed984c
     df = simulate_pit_liability(df)
-    df = apply_income_cap(df)
+    df = apply_wealth_tax_income_cap(df)
     df = simulate_migration_attrition(df)
     print(df["Migration_Exit"].value_counts())
     df = apply_adjustments(df)
