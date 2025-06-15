@@ -53,18 +53,6 @@ def apply_wealth_tax_income_cap(
     return df
 
 
-def calculate_tax_liability(
-    amount: float, brackets: list[tuple[float, float, float]]
-) -> float:
-    """
-    Compute total tax liability using progressive brackets.
-    """
-    return sum(
-        max(0, min(amount, upper_limit) - lower_limit) * rate
-        for lower_limit, upper_limit, rate in brackets
-    )
-
-
 def assign_behavioral_erosion_from_elasticity(
     row, ref_tax_rate=0.004, elasticity=0.35, max_erosion=0.35
 ):
