@@ -1,35 +1,9 @@
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from dta_handling import load_data
 from dta_handling import df_eff
-from constants import wealth_percentile, income_percentile 
+
 
 def assign_typology(df):
-    """
-    Assigns households to mismatch types based on:
-    - 'percriq' (wealth group as string)
-    - 'percrent' (income group as string)
-
-    This function re-maps them to numeric percentiles for logic.
-    """
-    df = df.copy()
-
-    def classify_typology(row):
-
-     if row["wealth_percentile"] >= 4 and row["income_percentile"] <= 3:
-        return "Wealth-rich, income-poor"
-     elif row["wealth_percentile"] <= 2 and row["income_percentile"] >= 5:
-        return "Income-rich, wealth-poor"
-     else:
-        return "Aligned"
-
-    df["mismatch_type"] = df.apply(classify_typology, axis=1)
-
-    return df
-
-def assign_typology1(df):
     """
     Assigns wealth and income percentiles as numeric ranks and classifies mismatch typologies.
     Conditions:
@@ -58,6 +32,7 @@ def assign_typology1(df):
     df["mismatch_type"] = df.apply(classify, axis=1)
     return df
 
+
 def get_typology_statistics(df):
     typology_counts = df["mismatch_type"].value_counts().reset_index()
     typology_counts.columns = ["mismatch_type", "count"]
@@ -70,10 +45,12 @@ def get_typology_statistics(df):
 
     # Average wealth and income by mismatch type
     summary_stats = df.groupby("mismatch_type").apply(
-        lambda x: pd.Series({
-            "mean_wealth": np.average(x["riquezanet"], weights=x["facine3"]),
-            "mean_income": np.average(x["renthog21_eur22"], weights=x["facine3"]),
-        })
+        lambda x: pd.Series(
+            {
+                "mean_wealth": np.average(x["riquezanet"], weights=x["facine3"]),
+                "mean_income": np.average(x["renthog21_eur22"], weights=x["facine3"]),
+            }
+        )
     )
     print("\nAverage wealth and income by mismatch type:")
     print(summary_stats)
@@ -83,8 +60,8 @@ def get_typology_statistics(df):
 
 def main():
     df = df_eff
-    df = assign_typology1(df)
-   
+    df = assign_typology(df)
+
     get_typology_statistics(df)
 
     return df

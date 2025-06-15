@@ -2,15 +2,23 @@ import pandas as pd
 import numpy as np
 from copy import deepcopy
 from dta_handling import load_data
-from eff_typology import assign_typology1
+from eff_typology import assign_typology
 from New_Simulation import (
-    generate_summary_table,
     apply_valuation_manipulation,
     typology_impact_summary,
-    simulate_pit_liability, 
-    apply_income_cap
+    simulate_pit_liability,
+    apply_income_cap,
 )
-from constants import (Residence_Ownership, Business_Value, Business_Ownership ,Primary_Residence, Num_Workers, PEOPLE_IN_HOUSEHOLD, Net_Wealth, Income, wealth_percentile, working_status, income_percentile)
+from constants import (
+    Residence_Ownership,
+    Business_Value,
+    Business_Ownership,
+    Primary_Residence,
+    Num_Workers,
+    PEOPLE_IN_HOUSEHOLD,
+    Net_Wealth,
+    Income,
+)
 import logging
 from typing import Callable, List, Optional, Tuple
 
@@ -19,14 +27,15 @@ logging.basicConfig(level=logging.INFO)
 
 Bracket = Tuple[float, float, float]
 
+
 def compute_legal_exemptions(df):
     """
     Estimates total legal exemptions that can be subtracted from taxable wealth.
-    
+
     Two main categories are considered:
     - Primary residence exemption (if owned)
     - Business asset exemption (applied probabilistically)
-    
+
     The idea is to replicate legal treatments where exemptions reduce the tax base
     before applying any tax rates.
     """
@@ -36,9 +45,13 @@ def compute_legal_exemptions(df):
     exempt_home_value = np.where(owns_home, np.minimum(primary_home_val, 300_000), 0)
 
     # Business exemption if household has declared business value
-    business_exemption_rate = 0.30  # Probability of applying exemption (Duran-Cabré et al.)
+    business_exemption_rate = (
+        0.30  # Probability of applying exemption (Duran-Cabré et al.)
+    )
     has_business_value = df[Business_Ownership] == 1
-    apply_business_exempt = (np.random.rand(len(df)) < business_exemption_rate) & has_business_value
+    apply_business_exempt = (
+        np.random.rand(len(df)) < business_exemption_rate
+    ) & has_business_value
     business_exempt = np.where(apply_business_exempt, df[Business_Value].fillna(0), 0)
 
     return exempt_home_value + business_exempt
@@ -51,20 +64,21 @@ def simulate_wealth_tax_sensitivity(
     income_cap_rate: float = 0.6,
     apply_cap: bool = True,
     elasticity: float = 0.0,
-    exemption_fn: Optional[Callable[[pd.DataFrame], pd.Series]] = compute_legal_exemptions
+    exemption_fn: Optional[
+        Callable[[pd.DataFrame], pd.Series]
+    ] = compute_legal_exemptions,
 ) -> pd.DataFrame:
-
     df = df.copy()
     df["exempt_total"] = exemption_fn(df) if exemption_fn else 0
 
     non_taxable_assets = (
-        df.get("p2_71", 0).fillna(0) +
-        df.get("timpvehic", 0).fillna(0) +
-        df.get("p2_84", 0).fillna(0)
+        df.get("p2_71", 0).fillna(0)
+        + df.get("timpvehic", 0).fillna(0)
+        + df.get("p2_84", 0).fillna(0)
     ) / df["np1"]
 
     base_wealth = df["netwealth_individual"] - non_taxable_assets - df["exempt_total"]
-    df["base_wealth"] = base_wealth 
+    df["base_wealth"] = base_wealth
     df["taxable_wealth"] = np.maximum(base_wealth - exemption, 0)
     df["taxable_wealth_eroded"] = df["taxable_wealth"] * (1 - elasticity)
 
@@ -94,7 +108,9 @@ def simulate_wealth_tax_sensitivity(
     df["sim_tax_eroded"] = df["taxable_wealth_eroded"].apply(compute_tax)
 
     if apply_cap:
-        df["final_tax"] = np.minimum(df["sim_tax_eroded"], df["income_individual"] * income_cap_rate)
+        df["final_tax"] = np.minimum(
+            df["sim_tax_eroded"], df["income_individual"] * income_cap_rate
+        )
     else:
         df["final_tax"] = df["sim_tax_eroded"]
 
@@ -104,11 +120,13 @@ def simulate_wealth_tax_sensitivity(
 
     return df
 
+
 def apply_valuation_manipulation(df, real_estate_discount=0.15, business_discount=0.20):
-        df = df.copy()
-        df[Primary_Residence] = df[Primary_Residence].fillna(0) * (1 - real_estate_discount)
-        df[Business_Value] = df[Business_Value].fillna(0) * (1 - business_discount)
-        return df
+    df = df.copy()
+    df[Primary_Residence] = df[Primary_Residence].fillna(0) * (1 - real_estate_discount)
+    df[Business_Value] = df[Business_Value].fillna(0) * (1 - business_discount)
+    return df
+
 
 def get_split_method(method):
     def apply(df):
@@ -122,7 +140,9 @@ def get_split_method(method):
         elif method == "head_only":
             df["netwealth_individual"] = df[Net_Wealth]
         return df
+
     return apply
+
 
 def apply_income_split(df):
     df = df.copy()
@@ -164,6 +184,7 @@ def revenue_summary(df, weight_col="facine3"):
     print(summary_df.to_string(index=False))
     return summary_df
 
+
 def typology_impact_summary(df, weight_col="facine3"):
     df = df[df["final_tax"].notnull() & df["sim_tax"].notnull()]
 
@@ -187,9 +208,10 @@ def typology_impact_summary(df, weight_col="facine3"):
     print(typology_df.to_string(index=False))
     return typology_df
 
+
 def main():
     df_base = load_data()
-    df_base = assign_typology1(df_base)
+    df_base = assign_typology(df_base)
 
     elasticities = [0.0, 0.1, 0.2]
     valuation_scenarios = [(0.10, 0.15), (0.15, 0.20)]
@@ -207,7 +229,9 @@ def main():
         sim_df = simulate_wealth_tax_sensitivity(df)
         sim_df = simulate_pit_liability(sim_df)
         sim_df = apply_income_cap(sim_df)
-        summary_tables[f"summary_valuation_{re_disc}_{biz_disc}"] = revenue_summary(sim_df)
+        summary_tables[f"summary_valuation_{re_disc}_{biz_disc}"] = revenue_summary(
+            sim_df
+        )
         typology_impact_summary(sim_df)
         print(f"\nScenario: valuation_{re_disc}_{biz_disc}")
 
@@ -254,6 +278,7 @@ def main():
         summary_tables[f"summary_exemption_{threshold}"] = revenue_summary(sim_df)
         typology_impact_summary(sim_df)
         print(f"\nScenario: exemption_{threshold}")
+
 
 if __name__ == "__main__":
     main()
