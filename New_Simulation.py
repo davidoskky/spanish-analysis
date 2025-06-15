@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 
 from constants import (
-    Net_Wealth,
     PROGRESSIVE_TAX_BRACKETS,
     NON_TAXABLE_ASSET_COLS,
 )
@@ -53,67 +52,52 @@ def apply_wealth_tax_income_cap(
     return df
 
 
-def assign_behavioral_erosion_from_elasticity(
-    row, ref_tax_rate=0.004, elasticity=0.35, max_erosion=0.35
+def apply_behavioral_response(
+    df,
+    ref_tax_rate=0.004,
+    max_erosion: float = 0.35,
+    wealth_col: str = "netwealth_individual",
 ):
     """
-    Compute behavioral erosion factor θ_i = 1 - ((1 - τ_eff) / (1 - τ_ref))^ε
-    - τ_eff: effective tax rate for individual i
-    - τ_ref: reference average effective rate (e.g., 0.004)
-    - ε: elasticity of taxable wealth (e.g., 0.35)
+    Apply behavioral erosion based on wealth-ranked elasticity to simulate real-world avoidance.
+    Must be called after initial simulate_wealth_tax(), before income cap.
+
+        Calculate the behavioural‐erosion factor θ for a vector of effective tax rates.
+
+    θ_i = 1 − ((1 − τ_eff_i) / (1 − τ_ref))^ε
+      • τ_eff_i  : individual effective wealth-tax rate
+      • τ_ref    : reference rate (≈ population average)
+      • ε        : elasticity of taxable wealth wrt. net-of-tax rate
+      • θ is capped at `max_erosion` and floored at 0
 
      Sources:
     - Jakobsen et al. (2020), QJE
     - Seim (2017), AER
     - Duran-Cabré et al. (2023), WP
     """
-    net_wealth = row.get(Net_Wealth, 0)
-    sim_tax = row.get("sim_tax", 0)
 
-    if net_wealth <= 1e-6 or sim_tax <= 0:
-        return 0.0
-    eff_rate = sim_tax / net_wealth
-
-    if eff_rate <= 0 or eff_rate >= 1:
-        return 0.0
-
-    erosion = 1 - ((1 - eff_rate) / (1 - ref_tax_rate)) ** elasticity
-
-    return min(max(erosion, 0), max_erosion)
-
-
-def get_grouped_elasticity(row):
-    """
-    Assign elasticity based on wealth rank group.
-    """
-    p = row.get("wealth_rank", 0)
-    if p > 0.9999:
-        return 1.1
-    if p > 0.999:
-        return 0.80
-    elif p > 0.99:
-        return 0.40
-    elif p > 0.90:
-        return 0.20
-    else:
-        return 0.10
-
-
-def apply_behavioral_response(df, ref_tax_rate=0.004):
-    """
-    Apply behavioral erosion based on wealth-ranked elasticity to simulate real-world avoidance.
-    Must be called after initial simulate_wealth_tax(), before income cap.
-    """
     df = df.copy()
 
-    df["behavioral_erosion"] = df.apply(
-        lambda row: assign_behavioral_erosion_from_elasticity(
-            row, ref_tax_rate=ref_tax_rate, elasticity=get_grouped_elasticity(row)
-        ),
-        axis=1,
-    )
+    schedule = [
+        (0.9999, 1.10),
+        (0.999, 0.80),
+        (0.990, 0.40),
+        (0.900, 0.20),
+    ]
+    eff = df["sim_tax"] / (df[wealth_col] + 1e-6)
 
-    df["taxable_wealth_eroded"] = df["taxable_wealth"] * (1 - df["behavioral_erosion"])
+    thresholds, values = zip(*schedule)
+    conditions = [df["wealth_rank"] > t for t in thresholds]
+    elasticity = np.select(conditions, values, default=0.10)
+
+    # 3. Behavioural erosion factor θ
+    theta = 1 - ((1 - eff) / (1 - ref_tax_rate)) ** elasticity
+    theta = np.clip(theta, 0, max_erosion)
+    theta[(eff <= 0) | (eff >= 1) | np.isnan(eff)] = 0.0
+
+    df["behavioral_erosion"] = theta
+    df["taxable_wealth_eroded"] = df["taxable_wealth"] * (1 - theta)
+
     return df
 
 
