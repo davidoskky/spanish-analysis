@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-
+from dta_handling import load_data
 
 def assign_typology(df):
     """
@@ -58,7 +58,7 @@ def get_typology_statistics(df):
 
 
 def main():
-    df = df_eff
+
     df = assign_typology(df)
 
     get_typology_statistics(df)

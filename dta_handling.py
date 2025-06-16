@@ -24,7 +24,7 @@ def load_data(folder: str = "Data"):
             for i in range(1, 6)
         ]
     )
-    df_eff["facine3"] /= 5  # Adjust weights to account for 5 implicates
+    df_eff["facine3"] = 5  # Adjust weights to account for 5 implicates
     replace_dict = {
         "bage": {
             1: "Under 35",
