@@ -1,3 +1,4 @@
+ # This script simulates a counterfactual scenario where wealth tax is applied at the household level
 import pandas as pd
 import numpy as np
 
@@ -16,9 +17,27 @@ from constants import (
 )
 from dta_handling import load_data
 from eff_typology import assign_typology
-from preprocessing import individual_split
 
 from ineqpy.inequality import gini
+
+ 
+def individual_split(df):
+    """
+    Defines 'individual' income and wealth as household-level values,
+    without performing any splitting.
+
+    This allows the rest of the simulation code to remain unchanged,
+    while treating the household as a single taxpayer unit.
+    This is the change in this conterfactual scenario compared to the original
+    """
+    df = df.copy()
+
+    # No splitting: just assign values directly
+    df["income_individual"] = df[Income]
+    df["netwealth_individual"] = df[Net_Wealth]
+
+    print(df["income_individual"].describe())
+    return df
 
 
 def apply_valuation_manipulation(df, real_estate_discount=0.15, business_discount=0.20):
@@ -70,7 +89,7 @@ def compute_legal_exemptions(df):
 
     return exempt_home_value + business_exempt
 
-def simulate_pit_liability(df: pd.DataFrame, correction_top1=0.15, weight_col="facine3"):
+def simulate_pit_liability(df: pd.DataFrame, weight_col="facine3"):
     """
     Simulates Spanish PIT liability with a basic personal allowance.
     Also applies an upward correction to the top 1% to approximate unreported capital income.
@@ -125,7 +144,7 @@ def apply_wealth_tax_income_cap(
     - df: DataFrame with capped WT and relief columns
     """
     df = df.copy()
-    eligible = df["netwealth_individual"] < 20_000_000
+    eligible = df["netwealth_individual"] < 30_000_000
     income_limit = df["income_individual"] * income_cap_rate
     wealth_tax = df["sim_tax"]
     income_tax = df["pit_liability"].fillna(0)
