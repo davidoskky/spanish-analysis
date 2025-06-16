@@ -10,6 +10,13 @@ Primary_Residence = "p2_70"
 Business_Value = "valhog"
 Residence_Ownership = "np2_1"
 Business_Ownership = "havenegval"
+NON_TAXABLE_ASSET_COLS: tuple[str, ...] = ("p2_71", "timpvehic", "p2_84")
+NET_WEALTH_COL = "netwealth_individual"
+EXEMPT_TOTAL_COL = "exempt_total"
+TAXABLE_WEALTH_COL = "taxable_wealth"
+SIM_TAX_COL = "sim_tax"
+INCOME_COL = "income_individual"
+PIT_LIABILITY_COL = "pit_liability"
 
 # Data
 SPANISH_PIT_2022_BRACKETS = [

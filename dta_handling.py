@@ -59,11 +59,20 @@ def load_data(folder: str = "Data"):
         # "percriq": {1: "< P25", 2: "P25-P50", 3: "P50-P75", 4: "P75-P90", 5: "> P90"},
     }
     # df_eff[PEOPLE_IN_HOUSEHOLD] = df_eff[PEOPLE_IN_HOUSEHOLD].astype(int)
+
     df_eff = df_eff.replace(to_replace=replace_dict)
     df_eff[PEOPLE_IN_HOUSEHOLD] = pd.to_numeric(df_eff[PEOPLE_IN_HOUSEHOLD])
     df_eff[Num_Workers] = pd.to_numeric(df_eff[Num_Workers])
 
+    _log_missing(df_eff, ["facine3", PEOPLE_IN_HOUSEHOLD, Num_Workers])
     return df_eff
+
+
+def _log_missing(df: pd.DataFrame, cols: list[str]) -> None:
+    miss = df[cols].isna().sum()
+    if miss.any():
+        print("⚠️  Missing values:")
+        print(miss[miss > 0])
 
 
 if __name__ == "__main__":
