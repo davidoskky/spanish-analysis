@@ -1,4 +1,4 @@
- # This script simulates a counterfactual scenario where wealth tax is applied at the household level adn no regional erosion is applied
+ # This script simulates a counterfactual scenario where behavioural responses are lowered and no regional erosion is applied
 import pandas as pd
 import numpy as np
 
@@ -19,47 +19,8 @@ from dta_handling import load_data
 from eff_typology import assign_typology
 
 from ineqpy.inequality import gini
+from preprocessing import individual_split
 
- 
-def individual_split(df):
-    """
-    Defines 'individual' income and wealth as household-level values,
-    without performing any splitting.
-
-    This allows the rest of the simulation code to remain unchanged,
-    while treating the household as a single taxpayer unit.
-    This is the change in this conterfactual scenario compared to the original
-    """
-    df = df.copy()
-
-    # No splitting: just assign values directly
-    df["income_individual"] = df[Income]
-    df["netwealth_individual"] = df[Net_Wealth]
-
-    print(df["income_individual"].describe())
-    return df
-
-
-def apply_valuation_manipulation(df, real_estate_discount=0.15, business_discount=0.20):
-    """
-    Adjusts reported asset values for typical underreporting in household surveys.
-
-    Applies empirical discounts to real estate and business holdings, in line with literature
-    showing systematic undervaluation in self-reported data.
-
-    References:
-      - Alstadsæter et al. (2019), AER
-      - Advani & Tarrant (2022), IFS
-      - Duran-Cabré et al. (2023)
-
-    Parameters:
-    - real_estate_discount: fraction to reduce real estate values by (default: 15%)
-    - business_discount: fraction to reduce business asset values by (default: 20%)
-    """
-    df = df.copy()
-    df[Primary_Residence] = df[Primary_Residence] * (1 - real_estate_discount)
-    df[Business_Value] = df[Business_Value] * (1 - business_discount)
-    return df
 
 
 def compute_legal_exemptions(df):
@@ -218,61 +179,8 @@ def simulate_household_wealth_tax(
     return df
 
 
-def assign_behavioral_erosion_from_elasticity(
-    row, ref_tax_rate=0.004, elasticity=0.25, max_erosion=0.10
-):
-    """
-    Apply behavioral erosion based on wealth-ranked elasticity to simulate real-world avoidance.
-    Must be called after initial simulate_wealth_tax(), before income cap.
 
-        Calculate the behavioural‐erosion factor θ for a vector of effective tax rates.
-
-    θ_i = 1 − ((1 − τ_eff_i) / (1 − τ_ref))^ε
-      • τ_eff_i  : individual effective wealth-tax rate
-      • τ_ref    : reference rate (≈ population average)
-      • ε        : elasticity of taxable wealth wrt. net-of-tax rate
-      • θ is capped at `max_erosion` and floored at 0
-
-     Sources:
-    - Jakobsen et al. (2020), QJE
-    - Seim (2017), AER
-    - Duran-Cabré et al. (2023), WP
-    """
-    net_wealth = row.get(Net_Wealth, 0)
-    sim_tax = row.get("sim_tax", 0)
-    tax_base = row.get("taxable_wealth", 0)
-
-    if net_wealth <= 1e-6 or sim_tax <= 0:
-        return 0.0
-    eff_rate = sim_tax / tax_base
-
-
-    if eff_rate <= 0 or eff_rate >= 1:
-        return 0.0
-
-    erosion = 1 - ((1 - eff_rate) / (1 - ref_tax_rate)) ** elasticity
-
-    return min(max(erosion, 0), max_erosion)
-
-
-def get_grouped_elasticity(row):
-    """
-    Assign elasticity based on wealth rank group.
-    """
-    p = row.get("wealth_rank", 0)
-    if p > 0.9999:
-        return 0.06
-    if p > 0.999:
-        return 0.05
-    elif p > 0.99:
-        return 0.04
-    elif p > 0.90:
-        return 0.020
-    else:
-        return 0.01
-
-
-def apply_behavioral_response(df, ref_tax_rate=0.004, max_erosion=0.10):
+def apply_behavioral_response(df, ref_tax_rate=0.01, max_erosion=0.05):
     """
     Apply behavioral erosion based on wealth-ranked elasticity to simulate real-world avoidance.
     Must be called after initial simulate_wealth_tax(), before income cap.
@@ -281,16 +189,16 @@ def apply_behavioral_response(df, ref_tax_rate=0.004, max_erosion=0.10):
     
 
     schedule = [
-        (0.9999, 0.06),
-        (0.999, 0.05),
-        (0.990, 0.04),
-        (0.900, 0.02),
+        (0.9999, 0.02),
+        (0.999, 0.01),
+        (0.990, 0.002),
+        (0.900, 0.001),
     ]
     eff = df["sim_tax"] / (df["taxable_wealth"] + 1e-6)
 
     thresholds, values = zip(*schedule)
     conditions = [df["wealth_rank"] > t for t in thresholds]
-    elasticity = np.select(conditions, values, default=0.10)
+    elasticity = np.select(conditions, values, default=0.0001)
 
     # 3. Behavioural erosion factor θ
     theta = 1 - ((1 - eff) / (1 - ref_tax_rate)) ** elasticity
@@ -450,6 +358,14 @@ def main():
 
     print(f"% of population receiving relief: {share_relieved:.2f}%")
     print(f"Average relief per capita (weighted): €{avg_relief:,.2f}")
+
+    print("BEHAVIORAL CHECK:")
+    original_revenue = (df["sim_tax_original"] * df["facine3"]).sum()
+    after_erosion = (df["sim_tax"] * df["facine3"]).sum()
+    behav_loss = original_revenue - after_erosion
+    print("Original Revenue (no erosion):", original_revenue)
+    print("After erosion:", after_erosion)
+    print("Loss (should match):", behav_loss)
 
 
 if __name__ == "__main__":

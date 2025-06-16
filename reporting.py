@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from ineqpy.inequality import gini
 
+from constants import Net_Wealth
 from statistic import top_share
 
 
@@ -70,9 +71,6 @@ def typology_impact_summary(df, weight_col="facine3"):
                     "Avg Final Tax": np.average(
                         g["adjusted_final_tax"], weights=g[weight_col]
                     ),
-                    "Avg Sim Tax": np.average(
-                        g["adjusted_sim_tax"], weights=g[weight_col]
-                    ),
                     "Cap Relief Share": (g["cap_relief"] > 1e-6).mean(),
                     "Migration Rate": g["Migration_Exit"].mean(),
                     "Total Revenue": (g["adjusted_final_tax"] * g[weight_col]).sum(),
@@ -88,7 +86,7 @@ def typology_impact_summary(df, weight_col="facine3"):
 
 def generate_summary_table(df, weight_col="facine3"):
     revenue_collected = (df["adjusted_final_tax"] * df[weight_col]).sum()
-    revenue_without_cap = (df["adjusted_sim_tax"] * df[weight_col]).sum()
+    revenue_without_cap = (df["adjusted_tax_afterBR"] * df[weight_col]).sum()
     cap_relief = revenue_without_cap - revenue_collected
 
     if "Migration_Exit" in df.columns:
@@ -129,28 +127,54 @@ def generate_summary_table(df, weight_col="facine3"):
     print(summary_df.to_string(index=False))
     return summary_df
 
+import numpy as np
+
+def gini(values, weights=None):
+    """
+    Compute Gini coefficient of a numpy array or pandas Series.
+
+    Parameters:
+    - values: array-like, income or wealth values
+    - weights: array-like, same length as values
+
+    Returns:
+    - Gini coefficient as float between 0 and 1
+    """
+    values = np.asarray(values)
+    if weights is None:
+        weights = np.ones_like(values)
+    else:
+        weights = np.asarray(weights)
+
+    # Sort by values
+    sorted_idx = np.argsort(values)
+    sorted_values = values[sorted_idx]
+    sorted_weights = weights[sorted_idx]
+
+    # Compute cumulative values and weights
+    cumw = np.cumsum(sorted_weights)
+    cumxw = np.cumsum(sorted_values * sorted_weights)
+
+    # Relative mean difference (Gini formula)
+    gini_numerator = np.sum(sorted_weights * (cumxw - sorted_values * sorted_weights / 2))
+    gini_denominator = cumxw[-1] * cumw[-1]
+    
+    return 1 - 2 * gini_numerator / gini_denominator
+
 
 def compute_inequality_metrics(df):
     metrics = {
-        "Gini Before Tax": gini(
-            income="netwealth_individual", weights="facine3", data=df
-        ),
-        "Gini After Tax (cap)": gini(
-            income="wealth_after_cap", weights="facine3", data=df
-        ),
-        "Gini After Tax (no cap)": gini(
-            income="wealth_after_no_cap", weights="facine3", data=df
-        ),
-        "Top 10% Share Before": top_share(df, "netwealth_individual", "facine3", 0.10),
+        "Gini Before Tax": gini(df[Net_Wealth], weights=df["facine3"]),
+        "Gini After Tax (cap)": gini(df["wealth_after_cap"], weights=df["facine3"]),
+        "Gini After Tax (no cap)": gini(df["wealth_after_no_cap"], weights=df["facine3"]),
+
+        "Top 10% Share Before": top_share(df, Net_Wealth, "facine3", 0.10),
         "Top 10% Share After (cap)": top_share(df, "wealth_after_cap", "facine3", 0.10),
-        "Top 10% Share After (no cap)": top_share(
-            df, "wealth_after_no_cap", "facine3", 0.10
-        ),
-        "Top 1% Share Before": top_share(df, "netwealth_individual", "facine3", 0.01),
+        "Top 10% Share After (no cap)": top_share(df, "wealth_after_no_cap", "facine3", 0.10),
+
+        "Top 1% Share Before": top_share(df, Net_Wealth, "facine3", 0.01),
         "Top 1% Share After (cap)": top_share(df, "wealth_after_cap", "facine3", 0.01),
-        "Top 1% Share After (no cap)": top_share(
-            df, "wealth_after_no_cap", "facine3", 0.01
-        ),
+        "Top 1% Share After (no cap)": top_share(df, "wealth_after_no_cap", "facine3", 0.01),
     }
 
     print("\n--- Inequality Metrics ---")
@@ -165,16 +189,15 @@ def payer_coverage(df):
 
 
 def loss_breakdown(df):
-    gross = (df["sim_tax"] * df["facine3"]).sum()
-    cap_loss = (df["sim_tax"] - df["final_tax"]) * df["facine3"]
-    cap_loss = cap_loss.sum()
+    gross = (df["sim_tax_original"] * df["facine3"]).sum()
+    cap_loss = ((df["tax_afterBR"] - df["final_tax"]) * df["facine3"]).sum()
     regional_loss = ((df["final_tax"] - df["adjusted_final_tax"]) * df["facine3"]).sum()
-    behav_loss = (
-        (df["taxable_wealth"] - df["taxable_wealth_eroded"]) * df["facine3"]
-    ).sum()
+    behav_loss = ((df["sim_tax_original"] - df["tax_afterBR"]) * df["facine3"]).sum()
+
     print(f"Cap loss:      {cap_loss / gross:.1%} of gross")
     print(f"Regional loss: {regional_loss / gross:.1%}")
     print(f"Behavioural:   {behav_loss / gross:.1%}")
+
 
 def generate_summary_table2(df: pd.DataFrame, weight_col="facine3") -> None:
     """
@@ -185,7 +208,7 @@ def generate_summary_table2(df: pd.DataFrame, weight_col="facine3") -> None:
 
     # Revenue at each stage
     revenue_pre_erosion = (df["sim_tax_original"] * weight).sum()
-    revenue_post_erosion = (df["sim_tax"] * weight).sum()
+    revenue_post_erosion = (df["tax_afterBR"] * weight).sum()
     revenue_after_cap = (df["final_tax"] * weight).sum()
     revenue_after_regional = (df["adjusted_final_tax"] * weight).sum()
 
