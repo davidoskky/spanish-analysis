@@ -101,7 +101,7 @@ def compute_legal_exemptions(df):
     return exempt_home_value + business_exempt
 
 
-def simulate_pit_liability(
+def simulate_pit_liability2(
     df: pd.DataFrame,
     brackets: list[tuple[float, float, float]] = SPANISH_PIT_2022_BRACKETS,
     income_col: str = INCOME_COL,

@@ -175,3 +175,30 @@ def loss_breakdown(df):
     print(f"Cap loss:      {cap_loss / gross:.1%} of gross")
     print(f"Regional loss: {regional_loss / gross:.1%}")
     print(f"Behavioural:   {behav_loss / gross:.1%}")
+
+def generate_summary_table2(df: pd.DataFrame, weight_col="facine3") -> None:
+    """
+    Generate and print summary of tax revenue at different simulation stages.
+    Assumes sim_tax_original is set before erosion.
+    """
+    weight = df[weight_col]
+
+    # Revenue at each stage
+    revenue_pre_erosion = (df["sim_tax_original"] * weight).sum()
+    revenue_post_erosion = (df["sim_tax"] * weight).sum()
+    revenue_after_cap = (df["final_tax"] * weight).sum()
+    revenue_after_regional = (df["adjusted_final_tax"] * weight).sum()
+
+    # Losses
+    erosion_loss = revenue_pre_erosion - revenue_post_erosion
+    cap_relief_loss = revenue_post_erosion - revenue_after_cap
+    regional_loss = revenue_after_cap - revenue_after_regional
+
+    print("\n--- Revenue Summary ---")
+    print(f"Revenue Before Erosion:            €{revenue_pre_erosion:,.0f}")
+    print(f"Revenue After Behavioral Erosion:  €{revenue_post_erosion:,.0f}")
+    print(f"Revenue After Income Cap:          €{revenue_after_cap:,.0f}")
+    print(f"Revenue After Regional Adjustments:€{revenue_after_regional:,.0f}")
+    print(f"\nLoss Due to Behavioral Erosion:    €{erosion_loss:,.0f}")
+    print(f"Loss Due to Income Cap Relief:     €{cap_relief_loss:,.0f}")
+    print(f"Loss Due to Regional Adjustments:  €{regional_loss:,.0f}")
