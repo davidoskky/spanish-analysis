@@ -24,7 +24,8 @@ def load_data(folder: str = "Data"):
             for i in range(1, 6)
         ]
     )
-    df_eff["facine3"] = 5  # Adjust weights to account for 5 implicates
+    df_eff["facine3"] = pd.to_numeric(df_eff["facine3"])
+    df_eff["facine3"] /= 5
     replace_dict = {
         "bage": {
             1: "Under 35",
@@ -65,6 +66,7 @@ def load_data(folder: str = "Data"):
     df_eff[Num_Workers] = pd.to_numeric(df_eff[Num_Workers])
 
     _log_missing(df_eff, ["facine3", PEOPLE_IN_HOUSEHOLD, Num_Workers])
+    
     return df_eff
 
 
@@ -79,4 +81,3 @@ if __name__ == "__main__":
     df_eff = load_data()
     check_nan(df_eff, Num_Workers)
 
-    print(df_eff)

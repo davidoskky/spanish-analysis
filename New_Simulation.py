@@ -53,7 +53,7 @@ def simulate_pit_liability(df: pd.DataFrame, correction_top1=0.15, weight_col="f
     Also applies an upward correction to the top 1% to approximate unreported capital income.
 
     Parameters:
-    - correction_top1: fractional increase in PIT for top 1% wealth (default: 15%)
+
     - weight_col: name of weight column (default: 'facine3')
     """
     df = df.copy()
@@ -109,7 +109,7 @@ def apply_wealth_tax_income_cap(
 
 
     total_tax = wealth_tax + income_tax
-    over_cap = (total_tax > income_limit) & eligible
+    over_cap = (total_tax > income_limit)
 
     max_allowed_relief = wealth_tax * (1 - min_wealth_tax_share)
 
@@ -178,139 +178,13 @@ def simulate_household_wealth_tax(
 
     return df
 
-def assign_behavioral_erosion_from_elasticity(
-    row, ref_tax_rate=0.004, elasticity=0.25, max_erosion=0.10
-):
-    """
-    Apply behavioral erosion based on wealth-ranked elasticity to simulate real-world avoidance.
-    Must be called after initial simulate_wealth_tax(), before income cap.
-
-        Calculate the behavioural‐erosion factor θ for a vector of effective tax rates.
-
-    θ_i = 1 − ((1 − τ_eff_i) / (1 − τ_ref))^ε
-      • τ_eff_i  : individual effective wealth-tax rate
-      • τ_ref    : reference rate (≈ population average)
-      • ε        : elasticity of taxable wealth wrt. net-of-tax rate
-      • θ is capped at `max_erosion` and floored at 0
-
-     Sources:
-    - Jakobsen et al. (2020), QJE
-    - Seim (2017), AER
-    - Duran-Cabré et al. (2023), WP
-    """
-    net_wealth = row.get(Net_Wealth, 0)
-    sim_tax = row.get("sim_tax", 0)
-    tax_base = row.get("taxable_wealth", 0)
-
-    if net_wealth <= 1e-6 or sim_tax <= 0:
-        return 0.0
-    eff_rate = sim_tax / tax_base
+def get_top_marginal_tax(amount, brackets):
+    for lower, upper, rate in reversed(brackets):
+        if amount > lower:
+            return rate
+    return 0.0
 
 
-    if eff_rate <= 0 or eff_rate >= 1:
-        return 0.0
-
-    erosion = 1 - ((1 - eff_rate) / (1 - ref_tax_rate)) ** elasticity
-
-    return min(max(erosion, 0), max_erosion)
-
-
-def get_grouped_elasticity(row):
-    """
-    Assign elasticity based on wealth rank group.
-    """
-    p = row.get("wealth_rank", 0)
-    if p > 0.9999:
-        return 0.06
-    if p > 0.999:
-        return 0.05
-    elif p > 0.99:
-        return 0.04
-    elif p > 0.90:
-        return 0.020
-    else:
-        return 0.01
-    
-
-def apply_behavioral_response(df, max_erosion=0.3):
-    """
-    Applies behavioral erosion based on wealth rank, assigning elasticities
-    in line with evidence from Jakobsen et al. (2020), Duran-Cabré et al. (2019), etc.
-
-    Parameters:
-    - max_erosion: Maximum erosion allowed (cap), default 30%
-    """
-    df = df.copy()
-
-    # Assign elasticity based on rank (percentile)
-    def elasticity(rank):
-        if rank > 0.9999:
-            return 1.50
-        elif rank > 0.999:
-            return 0.80
-        elif rank > 0.99:
-            return 0.50
-        elif rank > 0.90:
-            return 0.20
-        else:
-            return 0.10
-
-    df["elasticity"] = df["wealth_rank"].apply(elasticity)
-
-    # Compute behavioral erosion θ_i = min(elasticity * base_rate, max_erosion)
-    # Assume an average perceived statutory burden (0.004 = 0.4%) baseline
-    ref_rate = 0.004
-    df["behavioral_erosion"] = np.clip(df["elasticity"] * ref_rate, 0, max_erosion)
-
-    # Apply erosion to taxable wealth
-    df["taxable_wealth_eroded"] = df["taxable_wealth"] * (1 - df["behavioral_erosion"])
-
-    # Diagnostics
-    taxpayers = df["sim_tax_original"] > 0
-    erosion_weighted = (df.loc[taxpayers, "behavioral_erosion"] * df.loc[taxpayers, "facine3"]).sum() / df.loc[taxpayers, "facine3"].sum()
-
-    print("\n[Behavioral Response by Rank]")
-    print(df["behavioral_erosion"].describe())
-    print(f"Avg erosion among payers: {erosion_weighted:.4%}")
-    print(f"Taxpayers affected: {(taxpayers.mean()*100):.2f}%")
-
-    return df
-
-
-
-
-
-   #def apply_behavioral_response(df, ref_tax_rate=0.003, max_erosion=0.8):
-    """
-    Apply behavioral erosion based on wealth-ranked elasticity to simulate real-world avoidance.
-    Must be called after initial simulate_wealth_tax(), before income cap.
-    """
-    df = df.copy()
-    
-
-    schedule = [
-        (0.9999, 1.9),
-        (0.999, 0.8),
-        (0.990, 0.5),
-        (0.900, 0.2),
-    ]
-    eff = df["sim_tax"] / (df["taxable_wealth"] + 1e-6)
-
-    thresholds, values = zip(*schedule)
-    conditions = [df["wealth_rank"] > t for t in thresholds]
-    elasticity = np.select(conditions, values, default=0.35)
-
-    # 3. Behavioural erosion factor θ
-    theta = 1 - ((1 - eff) / (1 - ref_tax_rate)) ** elasticity
-    theta = np.clip(theta, 0, max_erosion)
-    theta[(eff <= 0) | (eff >= 1) | np.isnan(eff)] = 0.0
-
-    df["behavioral_erosion"] = theta
-    df["taxable_wealth_eroded"] = df["taxable_wealth"] * (1 - theta)
-    print(df["behavioral_erosion"].describe())
-
-
-    return df
 
 def recalculate_wealth_tax_on_eroded_base(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -322,6 +196,47 @@ def recalculate_wealth_tax_on_eroded_base(df: pd.DataFrame) -> pd.DataFrame:
         lambda amount: calculate_tax_liability(amount, PROGRESSIVE_TAX_BRACKETS)
     )
     return df
+
+def apply_behavioral_response(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Applies behavioural erosion to taxable wealth based on Jakobsen et al. (2020) and Brülhart et al. (2022).
+    Uses elasticities estimated for the very wealthy and applies erosion only to top 10% households.
+
+    Erosion = elasticity × marginal tax rate × taxable wealth
+    """
+
+    df = df.copy()
+
+    # Assign elasticity based on wealth rank
+    def assign_elasticity(rank):
+        if rank >= 0.9999:
+            return 11.0  # Jakobsen: top 0.01%
+        elif rank >= 0.999:
+            return 8.0   # Jakobsen: top 0.1%
+        elif rank >= 0.99:
+            return 2.0   # Brülhart-like elasticity
+        elif rank >= 0.90:
+            return 0.5   # Minor response
+        else:
+            return 0.0
+
+    df["behavioral_elasticity"] = df["wealth_rank"].apply(assign_elasticity)
+
+    # Reuse or recompute marginal tax rate
+    df["top_marginal_rate"] = df["taxable_wealth"].apply(
+        lambda x: get_top_marginal_tax(x, PROGRESSIVE_TAX_BRACKETS)
+    )
+
+    # Erosion factor based on: e * t
+    erosion_fraction = df["behavioral_elasticity"] * df["top_marginal_rate"]
+    erosion_fraction = erosion_fraction.clip(upper=0.95)  # cap at 95% erosion
+
+    df["erosion_factor"] = 1 - erosion_fraction
+    df["taxable_wealth_eroded"] = df["taxable_wealth"] * df["erosion_factor"]
+    df["%_eroded"] = 100 * (1 - df["erosion_factor"])
+
+    return df
+
 
 def simulate_migration_attrition(
     df: pd.DataFrame,
@@ -366,7 +281,7 @@ def simulate_migration_attrition(
 
 
 def apply_regional_tax_adjustments(
-    df: pd.DataFrame, tax_reduction: float = 0.083
+    df: pd.DataFrame, tax_reduction: float = 0.1
 ) -> pd.DataFrame:
     """Adjust taxable wealth and tax values to account for regional exemptions such as Andalusia
     """
@@ -404,24 +319,28 @@ def compute_net_wealth_post_tax(df):
 def check_valid_input_data(df):
     assert not (df[Net_Wealth].isna()).any()
 
-
 def compute_weighted_wealth_rank(df, wealth_col=Net_Wealth, weight_col="facine3"):
     df = df.copy()
-    
-    # Sort and calculate cumulative weight
-    df_sorted = df[[wealth_col, weight_col]].copy()
-    df_sorted["orig_index"] = df_sorted.index  # preserve original position
-    df_sorted = df_sorted.sort_values(by=wealth_col, kind="mergesort").reset_index(drop=True)
-    
-    df_sorted["cum_weight"] = df_sorted[weight_col].cumsum()
-    total_weight = df_sorted[weight_col].sum()
-    df_sorted["wealth_rank"] = df_sorted["cum_weight"] / total_weight
+    result = []
 
-    # Merge back by original index
-    df = df.merge(df_sorted[["orig_index", "wealth_rank"]], left_index=True, right_on="orig_index")
-    df.drop(columns=["orig_index"], inplace=True)
+    for imp in df["imputation"].unique():
+        sub_df = df[df["imputation"] == imp].copy()
 
-    return df
+        # Normalize weights within implicate to represent a consistent total (e.g. national total)
+        total_weight = sub_df[weight_col].sum()
+        sub_df["scaled_weight"] = sub_df[weight_col] / total_weight
+
+        # Sort by wealth
+        sub_df = sub_df.sort_values(by=wealth_col, kind="mergesort").reset_index(drop=True)
+        sub_df["cum_weight"] = sub_df["scaled_weight"].cumsum()
+
+        # Wealth rank is the cumulative population share
+        sub_df["wealth_rank"] = sub_df["cum_weight"]
+
+        result.append(sub_df)
+
+    df_ranked = pd.concat(result, ignore_index=True)
+    return df_ranked
 
 
 def main():
@@ -433,12 +352,13 @@ def main():
     df = assign_typology(df)
     df = compute_weighted_wealth_rank(df, Net_Wealth, "facine3")
 
-
-
     df = simulate_household_wealth_tax(df, exemption_amount=700_000)
     df["sim_tax_original"] = df["sim_tax"]
-    #df = apply_valuation_manipulation(df)
-    #df = assign_behavioral_erosion_from_elasticity(df)
+    
+    df["top_marginal_rate"] = df["taxable_wealth"].apply(
+    lambda x: get_top_marginal_tax(x, PROGRESSIVE_TAX_BRACKETS)
+)
+
     df = apply_behavioral_response(df)
     df = recalculate_wealth_tax_on_eroded_base(df)
     df = simulate_pit_liability(df)
@@ -474,8 +394,34 @@ def main():
     print(f"% of population receiving relief: {share_relieved:.2f}%")
     print(f"Average relief per capita (weighted): €{avg_relief:,.2f}")
 
-    print("Avg behavioral erosion:", df["behavioral_erosion"].mean())
-    print("Total revenue lost to erosion: €", ((df["sim_tax_original"] - df["tax_afterBR"]) * df["facine3"]).sum())
+    mean_wealth = df.groupby("imputation").apply(
+    lambda x: np.average(x["riquezanet"], weights=x["facine3"])
+    ).mean()
+    print(f"Weighted mean net wealth: €{mean_wealth:,.0f}")
+
+    total_taxable_wealth = df.groupby("imputation").apply(
+    lambda x: (x["taxable_wealth"] * x["facine3"]).sum()    
+    ).mean()
+    print(f"Total taxable wealth: €{total_taxable_wealth:,.0f}")
+
+
+    total_sim_tax = df.groupby("imputation").apply(
+    lambda x: (x["sim_tax_original"] * x["facine3"]).sum()
+    ).mean()
+    taxable_wealth = df.groupby("imputation").apply(
+    lambda x: (x["taxable_wealth"] * x["facine3"]).sum()
+    ).mean()
+    tax_rate_applied = total_sim_tax / taxable_wealth
+    print(f"Average effective tax rate on taxable wealth: {tax_rate_applied:.2%}")
+
+    df.groupby("imputation").apply(lambda x: (x["facine3"] * x[Net_Wealth]).sum()).mean()
+    print("Sum of weights:", df.groupby("imputation")["facine3"].sum())
+    df.groupby("imputation")["facine3"].sum()
+    print(df["facine3"].describe())
+    
+    erosion_check = df[["wealth_rank", "taxable_wealth", "taxable_wealth_eroded", "erosion_factor", "behavioral_elasticity", "effective_tax_rate"]]
+    erosion_check["%_eroded"] = 100 * (1 - erosion_check["taxable_wealth_eroded"] / erosion_check["taxable_wealth"])
+    print(erosion_check.describe())
 
 
 
