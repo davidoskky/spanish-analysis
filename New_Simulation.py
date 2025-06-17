@@ -18,14 +18,16 @@ from dta_handling import load_data
 from eff_typology import assign_typology
 from preprocessing import individual_split
 
+# Set simulation parameters for sensitivity analysis, when setting true is a sensitivity analysis
 USE_INDIVIDUAL = False  # Set to False to run household-level model, or set to True for individual-level(sensitivity analysis)
-
+LOWER_BEHAVIOURAL_RESPONSE = False
+NO_REGIONAL_EROSION = False
 wealth_col = "netwealth_individual" if USE_INDIVIDUAL else Net_Wealth
 income_col = "income_individual" if USE_INDIVIDUAL else Income
 
 
 def compute_legal_exemptions(df):
-    """
+    """s
     Estimates total legal exemptions that can be subtracted from taxable wealth.
 
     Two main categories are considered:
@@ -106,14 +108,14 @@ def apply_wealth_tax_income_cap(
     - df: DataFrame with capped WT and relief columns
     """
     df = df.copy()
-    eligible = df[wealth_col] < 1_000_000_000
+    eligible = df[wealth_col] < 90_000_000
     income_limit = df[income_col] * income_cap_rate
     wealth_tax = df["tax_afterBR"].fillna(0)
     income_tax = df["pit_liability"].fillna(0)
 
 
     total_tax = wealth_tax + income_tax
-    over_cap = (total_tax > income_limit)
+    over_cap = (total_tax > income_limit) & eligible
 
     max_allowed_relief = wealth_tax * (1 - min_wealth_tax_share)
 
@@ -211,9 +213,9 @@ def apply_behavioral_response(df: pd.DataFrame) -> pd.DataFrame:
     # Assign elasticity based on wealth rank
     def assign_elasticity(rank):
         if rank >= 0.9999:
-            return 11.0  # Jakobsen: top 0.01%
+            return 10.0  # Jakobsen: top 0.01%
         elif rank >= 0.999:
-            return 8.0   # Jakobsen: top 0.1%
+            return 7.0   # Jakobsen: top 0.1%
         elif rank >= 0.99:
             return 2.0   # Brülhart-like elasticity
         elif rank >= 0.90:
@@ -223,6 +225,7 @@ def apply_behavioral_response(df: pd.DataFrame) -> pd.DataFrame:
 
     df["behavioral_elasticity"] = df["wealth_rank"].apply(assign_elasticity)
 
+    
     # Reuse or recompute marginal tax rate
     df["top_marginal_rate"] = df["taxable_wealth"].apply(
         lambda x: get_top_marginal_tax(x, PROGRESSIVE_TAX_BRACKETS)
@@ -367,42 +370,53 @@ def main():
     lambda x: get_top_marginal_tax(x, PROGRESSIVE_TAX_BRACKETS)
 )
 
-    if USE_INDIVIDUAL:
-        def assign_elasticity(net_w):
-            if net_w >= 10_000_000:
-                return 1.5
-            elif net_w >= 5_000_000:
-                return 1.0
-            elif net_w >= 1_000_000:
-                return 0.5
-            elif net_w >= 500_000:
-                return 0.2
-            else:
-                return 0.0
-
-        df["behavioral_elasticity"] = df["netwealth_individual"].apply(assign_elasticity)
-    else:
-        def assign_elasticity(rank):
-            if rank >= 0.9999:
-                return 11.0
-            elif rank >= 0.999:
-                return 8.0
-            elif rank >= 0.99:
-                return 2.0
-            elif rank >= 0.90:
-                return 0.5
-            else:
-                return 0.0
-
-        df["behavioral_elasticity"] = df["wealth_rank"].apply(assign_elasticity)
 
     df = apply_behavioral_response(df)
+    
+    if USE_INDIVIDUAL:
+        def assign_elasticity(net_w, rank=None):
+            if LOWER_BEHAVIOURAL_RESPONSE:
+                # Downscaled elasticities
+                if net_w >= 10_000_000:
+                    return 0.8
+                elif net_w >= 5_000_000:
+                    return 0.5
+                elif net_w >= 1_000_000:
+                    return 0.2
+                else:
+                    return 0.0
+            else:
+                if rank is None:
+                    return 0.0
+                if rank >= 0.9999:
+                    return 10.0  # Jakobsen: top 0.01%
+                elif rank >= 0.999:
+                    return 7.0   # Jakobsen: top 0.1%
+                elif rank >= 0.99:
+                    return 2.0   # Brülhart-like elasticity
+                elif rank >= 0.90:
+                    return 0.5   # Minor response
+                else:
+                    return 0.0
+
+        df["behavioral_elasticity"] = df.apply(
+            lambda row: assign_elasticity(row["netwealth_individual"], row.get("wealth_rank", None)),
+            axis=1
+        )
+
+
     df = recalculate_wealth_tax_on_eroded_base(df)
     df = simulate_pit_liability(df)
     df = apply_wealth_tax_income_cap(df)
     df = simulate_migration_attrition(df)
     print(df["Migration_Exit"].value_counts())
-    df = apply_regional_tax_adjustments(df)
+    if not NO_REGIONAL_EROSION:
+        df = apply_regional_tax_adjustments(df)
+    else:
+        df["adjusted_sim_tax_original"] = df["sim_tax_original"]
+        df["adjusted_tax_afterBR"] = df["tax_afterBR"]
+        df["adjusted_final_tax"] = df["final_tax"]
+
 
     generate_summary_table2(df)
     typology_impact_summary(df)
