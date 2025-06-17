@@ -239,9 +239,9 @@ def apply_behavioral_response(df: pd.DataFrame) -> pd.DataFrame:
     # Assign elasticity based on wealth rank
     def assign_elasticity(rank):
         if rank >= 0.9999:
-            return 11.0  # Jakobsen: top 0.01%
+            return 10.0  # Jakobsen: top 0.01%
         elif rank >= 0.999:
-            return 8.0   # Jakobsen: top 0.1%
+            return 7.0   # Jakobsen: top 0.1%
         elif rank >= 0.99:
             return 2.0   # Brülhart-like elasticity
         elif rank >= 0.90:
@@ -259,7 +259,7 @@ def apply_behavioral_response(df: pd.DataFrame) -> pd.DataFrame:
 
     # Erosion factor based on: e * t
     erosion_fraction = df["behavioral_elasticity"] * df["top_marginal_rate"]
-    erosion_fraction = erosion_fraction.clip(upper=0.95)  # cap at 95% erosion
+    erosion_fraction = erosion_fraction.clip(upper=0.70)  # cap at 95% erosion
 
     df["erosion_factor"] = 1 - erosion_fraction
     df["taxable_wealth_eroded"] = df["taxable_wealth"] * df["erosion_factor"]

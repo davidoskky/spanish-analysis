@@ -233,7 +233,7 @@ def apply_behavioral_response(df: pd.DataFrame) -> pd.DataFrame:
 
     # Erosion factor based on: e * t
     erosion_fraction = df["behavioral_elasticity"] * df["top_marginal_rate"]
-    erosion_fraction = erosion_fraction.clip(upper=0.95)  # cap at 95% erosion
+    erosion_fraction = erosion_fraction.clip(upper=0.70) 
 
     df["erosion_factor"] = 1 - erosion_fraction
     df["taxable_wealth_eroded"] = df["taxable_wealth"] * df["erosion_factor"]
