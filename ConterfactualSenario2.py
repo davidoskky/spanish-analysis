@@ -22,6 +22,12 @@ from ineqpy.inequality import gini
 from preprocessing import individual_split
 
 
+USE_INDIVIDUAL = True  # Set to False to run household-level model
+
+
+wealth_col = "netwealth_individual" if USE_INDIVIDUAL else Net_Wealth
+income_col = "income_individual" if USE_INDIVIDUAL else Income
+
 
 def compute_legal_exemptions(df):
     """

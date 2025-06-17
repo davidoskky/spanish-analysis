@@ -5,6 +5,9 @@ from ineqpy.inequality import gini
 from constants import Net_Wealth
 from statistic import top_share
 
+USE_INDIVIDUAL = False  # Set to False to run household-level model
+
+wealth_col = "netwealth_individual" if USE_INDIVIDUAL else Net_Wealth
 
 def summarize_cap_and_tax_shares(df):
     """
@@ -157,15 +160,15 @@ def compute_inequality_metrics(df, weight_col="facine3"):
 
     for imp, group in df.groupby("imputation"):
         result = {
-            "Gini Before Tax": gini(group[Net_Wealth], weights=group[weight_col]),
+            "Gini Before Tax": gini(group[wealth_col], weights=group[weight_col]),
             "Gini After Tax (cap)": gini(group["wealth_after_cap"], weights=group[weight_col]),
             "Gini After Tax (no cap)": gini(group["wealth_after_no_cap"], weights=group[weight_col]),
 
-            "Top 10% Share Before": top_share(group, Net_Wealth, weight_col, 0.10),
+            "Top 10% Share Before": top_share(group, wealth_col, weight_col, 0.10),
             "Top 10% Share After (cap)": top_share(group, "wealth_after_cap", weight_col, 0.10),
             "Top 10% Share After (no cap)": top_share(group, "wealth_after_no_cap", weight_col, 0.10),
 
-            "Top 1% Share Before": top_share(group, Net_Wealth, weight_col, 0.01),
+            "Top 1% Share Before": top_share(group, wealth_col, weight_col, 0.01),
             "Top 1% Share After (cap)": top_share(group, "wealth_after_cap", weight_col, 0.01),
             "Top 1% Share After (no cap)": top_share(group, "wealth_after_no_cap", weight_col, 0.01),
         }

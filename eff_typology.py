@@ -58,7 +58,7 @@ def get_typology_statistics(df):
 
 
 def main():
-
+    df = load_data() 
     df = assign_typology(df)
 
     get_typology_statistics(df)

@@ -16,9 +16,13 @@ from constants import (
 )
 from dta_handling import load_data
 from eff_typology import assign_typology
+from preprocessing import individual_split
 
+USE_INDIVIDUAL = False  # Set to False to run household-level model, or set to True for individual-level(sensitivity analysis)
 
-from ineqpy.inequality import gini
+wealth_col = "netwealth_individual" if USE_INDIVIDUAL else Net_Wealth
+income_col = "income_individual" if USE_INDIVIDUAL else Income
+
 
 def compute_legal_exemptions(df):
     """
@@ -60,7 +64,7 @@ def simulate_pit_liability(df: pd.DataFrame, correction_top1=0.15, weight_col="f
 
     # Personal allowance (2022): €5,550 per taxpayer
     personal_allowance = 5550
-    taxable_income = np.maximum(df[Income] - personal_allowance, 0)
+    taxable_income = np.maximum(df[income_col] - personal_allowance, 0)
 
     df["pit_liability"] = taxable_income.apply(
         lambda amount: calculate_tax_liability(amount, SPANISH_PIT_2022_BRACKETS)
@@ -102,8 +106,8 @@ def apply_wealth_tax_income_cap(
     - df: DataFrame with capped WT and relief columns
     """
     df = df.copy()
-    eligible = df[Net_Wealth] < 20_000_000
-    income_limit = df[Income] * income_cap_rate
+    eligible = df[wealth_col] < 1_000_000_000
+    income_limit = df[income_col] * income_cap_rate
     wealth_tax = df["tax_afterBR"].fillna(0)
     income_tax = df["pit_liability"].fillna(0)
 
@@ -157,24 +161,21 @@ def simulate_household_wealth_tax(
 
     df["exempt_total"] = compute_legal_exemptions(df)
 
-    earners = df[Num_Workers]
-    adult_equivalent = earners.clip(lower=1)
-
     # Non-taxable assets: art, vehicles, pension funds
     non_taxable_assets = (
         df["p2_71"].fillna(0) + df["timpvehic"].fillna(0) + df["p2_84"].fillna(0)
-    ) / adult_equivalent
+    )
 
     # Taxable wealth = net wealth - non-taxable assets - legal exemptions - base exemption
     adjusted_wealth = (
-        df[Net_Wealth] - non_taxable_assets - df["exempt_total"]
+        df[wealth_col] - non_taxable_assets - df["exempt_total"]
     )
     df["taxable_wealth"] = np.maximum(adjusted_wealth - exemption_amount, 0)
 
     df["sim_tax"] = df["taxable_wealth"].apply(
         lambda amount: calculate_tax_liability(amount, PROGRESSIVE_TAX_BRACKETS)
     )
-    df["sim_tax_original"] = df["sim_tax"]  # preserve pre-erosion value
+    df["sim_tax_original"] = df["sim_tax"] 
 
     return df
 
@@ -236,7 +237,7 @@ def apply_behavioral_response(df: pd.DataFrame) -> pd.DataFrame:
     df["%_eroded"] = 100 * (1 - df["erosion_factor"])
 
     return df
-
+ 
 
 def simulate_migration_attrition(
     df: pd.DataFrame,
@@ -263,7 +264,7 @@ def simulate_migration_attrition(
     df = df.copy()
     df["Migration_Exit"] = False
 
-    net_of_tax = 1 - df["final_tax"] / (df[Net_Wealth] + 1e-6)
+    net_of_tax = 1 - df["final_tax"] / (df[wealth_col] + 1e-6)
 
     # migration probability using exponential behavioral model ---
     # Based on stock elasticity to net-of-tax rate
@@ -297,29 +298,29 @@ def apply_regional_tax_adjustments(
 
 def compute_effective_tax_rates(df):
     df = df.copy()
-    df["eff_tax_rate"] = df["adjusted_final_tax"] / (df[Net_Wealth] + 1e-6)
+    df["eff_tax_rate"] = df["adjusted_final_tax"] / (df[wealth_col] + 1e-6)
     df["eff_tax_rate"] = df["eff_tax_rate"].replace([np.inf, -np.inf], np.nan)
 
-    df["eff_tax_nocap"] = df["adjusted_tax_afterBR"] / (df[Net_Wealth] + 1e-6)
+    df["eff_tax_nocap"] = df["adjusted_tax_afterBR"] / (df[wealth_col] + 1e-6)
     df["eff_tax_nocap"] = df["eff_tax_nocap"].replace([np.inf, -np.inf], np.nan)
     return df
 
 
 def compute_net_wealth_post_tax(df):
     df = df.copy()
-    df["wealth_after_cap"] = df[Net_Wealth] - df[
+    df["wealth_after_cap"] = df[wealth_col] - df[
         "adjusted_final_tax"
     ].fillna(0)
-    df["wealth_after_no_cap"] = df[Net_Wealth] - df[
+    df["wealth_after_no_cap"] = df[wealth_col] - df[
         "adjusted_tax_afterBR"
     ].fillna(0)
     return df
 
 
 def check_valid_input_data(df):
-    assert not (df[Net_Wealth].isna()).any()
+    assert not (df[wealth_col].isna()).any()
 
-def compute_weighted_wealth_rank(df, wealth_col=Net_Wealth, weight_col="facine3"):
+def compute_weighted_wealth_rank(df, wealth_col=wealth_col, weight_col="facine3"):
     df = df.copy()
     result = []
 
@@ -348,9 +349,16 @@ def main():
 
     df = load_data()
 
+
+    df = individual_split(df)
+    
     check_valid_input_data(df)
+
+    wealth_col = "netwealth_individual" if USE_INDIVIDUAL else Net_Wealth
+    income_col = "income_individual" if USE_INDIVIDUAL else Income
+
     df = assign_typology(df)
-    df = compute_weighted_wealth_rank(df, Net_Wealth, "facine3")
+    df = compute_weighted_wealth_rank(df, wealth_col, "facine3")
 
     df = simulate_household_wealth_tax(df, exemption_amount=700_000)
     df["sim_tax_original"] = df["sim_tax"]
@@ -358,6 +366,35 @@ def main():
     df["top_marginal_rate"] = df["taxable_wealth"].apply(
     lambda x: get_top_marginal_tax(x, PROGRESSIVE_TAX_BRACKETS)
 )
+
+    if USE_INDIVIDUAL:
+        def assign_elasticity(net_w):
+            if net_w >= 10_000_000:
+                return 1.5
+            elif net_w >= 5_000_000:
+                return 1.0
+            elif net_w >= 1_000_000:
+                return 0.5
+            elif net_w >= 500_000:
+                return 0.2
+            else:
+                return 0.0
+
+        df["behavioral_elasticity"] = df["netwealth_individual"].apply(assign_elasticity)
+    else:
+        def assign_elasticity(rank):
+            if rank >= 0.9999:
+                return 11.0
+            elif rank >= 0.999:
+                return 8.0
+            elif rank >= 0.99:
+                return 2.0
+            elif rank >= 0.90:
+                return 0.5
+            else:
+                return 0.0
+
+        df["behavioral_elasticity"] = df["wealth_rank"].apply(assign_elasticity)
 
     df = apply_behavioral_response(df)
     df = recalculate_wealth_tax_on_eroded_base(df)
@@ -378,8 +415,8 @@ def main():
     report_effective_tax_rates(df)
     summarize_cap_and_tax_shares(df)
 
-    df["wealth_after_cap"] = df[Net_Wealth] - df["final_tax"].fillna(0)
-    df["wealth_after_no_cap"] = df[Net_Wealth] - df["tax_afterBR"].fillna(0)
+    df["wealth_after_cap"] = df[wealth_col] - df["final_tax"].fillna(0)
+    df["wealth_after_no_cap"] = df[wealth_col] - df["tax_afterBR"].fillna(0)
 
     df = compute_net_wealth_post_tax(df)
 
@@ -394,34 +431,16 @@ def main():
     print(f"% of population receiving relief: {share_relieved:.2f}%")
     print(f"Average relief per capita (weighted): €{avg_relief:,.2f}")
 
-    mean_wealth = df.groupby("imputation").apply(
-    lambda x: np.average(x["riquezanet"], weights=x["facine3"])
-    ).mean()
-    print(f"Weighted mean net wealth: €{mean_wealth:,.0f}")
+    df["weighted_relief"] = df["cap_relief"] * df["facine3"]
 
-    total_taxable_wealth = df.groupby("imputation").apply(
-    lambda x: (x["taxable_wealth"] * x["facine3"]).sum()    
-    ).mean()
-    print(f"Total taxable wealth: €{total_taxable_wealth:,.0f}")
+    relief_by_typology = (
+    df.groupby("mismatch_type")["weighted_relief"].sum()
+    / (df["cap_relief"] * df["facine3"]).sum()
+)
 
+    print("Share of total cap relief received by typology:")
+    print(relief_by_typology)
 
-    total_sim_tax = df.groupby("imputation").apply(
-    lambda x: (x["sim_tax_original"] * x["facine3"]).sum()
-    ).mean()
-    taxable_wealth = df.groupby("imputation").apply(
-    lambda x: (x["taxable_wealth"] * x["facine3"]).sum()
-    ).mean()
-    tax_rate_applied = total_sim_tax / taxable_wealth
-    print(f"Average effective tax rate on taxable wealth: {tax_rate_applied:.2%}")
-
-    df.groupby("imputation").apply(lambda x: (x["facine3"] * x[Net_Wealth]).sum()).mean()
-    print("Sum of weights:", df.groupby("imputation")["facine3"].sum())
-    df.groupby("imputation")["facine3"].sum()
-    print(df["facine3"].describe())
-    
-    erosion_check = df[["wealth_rank", "taxable_wealth", "taxable_wealth_eroded", "erosion_factor", "behavioral_elasticity", "effective_tax_rate"]]
-    erosion_check["%_eroded"] = 100 * (1 - erosion_check["taxable_wealth_eroded"] / erosion_check["taxable_wealth"])
-    print(erosion_check.describe())
 
 
 
