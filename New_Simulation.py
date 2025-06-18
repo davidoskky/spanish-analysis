@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 from constants import (
     PROGRESSIVE_TAX_BRACKETS,
@@ -17,11 +18,23 @@ from constants import (
 from dta_handling import load_data
 from eff_typology import assign_typology
 from preprocessing import individual_split
+from reporting import (
+    summarize_cap_and_tax_shares,
+    report_effective_tax_rates,
+    typology_impact_summary,
+    generate_summary_table2,
+    compute_inequality_metrics,
+    payer_coverage,
+    loss_breakdown,
+    plot_revenue_decomposition,
+)
+from wealth_tax import simulate_household_wealth_tax
+
 
 # Set simulation parameters for sensitivity analysis, when setting true is a sensitivity analysis
 USE_INDIVIDUAL = False  # Set to False to run household-level model, or set to True for individual-level(sensitivity analysis)
 LOWER_BEHAVIOURAL_RESPONSE = False
-NO_REGIONAL_EROSION = False
+NO_REGIONAL_EROSION = True
 wealth_col = "netwealth_individual" if USE_INDIVIDUAL else Net_Wealth
 income_col = "income_individual" if USE_INDIVIDUAL else Income
 
@@ -78,17 +91,6 @@ def simulate_pit_liability(df: pd.DataFrame, correction_top1=0.15, weight_col="f
     print(f"Total PIT (before correction):  €{total_pit:,.2f}")
     return df
 
-from reporting import (
-    summarize_cap_and_tax_shares,
-    report_effective_tax_rates,
-    typology_impact_summary,
-    generate_summary_table2,
-    compute_inequality_metrics,
-    payer_coverage,
-    loss_breakdown,
-)
-from wealth_tax import simulate_household_wealth_tax, simulate_pit_liability2
-
 
 def apply_wealth_tax_income_cap(
     df: pd.DataFrame, income_cap_rate: float = 0.60, min_wealth_tax_share: float = 0.20
@@ -115,7 +117,7 @@ def apply_wealth_tax_income_cap(
 
 
     total_tax = wealth_tax + income_tax
-    over_cap = (total_tax > income_limit) & eligible
+    over_cap = (total_tax > income_limit)
 
     max_allowed_relief = wealth_tax * (1 - min_wealth_tax_share)
 
@@ -163,7 +165,7 @@ def simulate_household_wealth_tax(
 
     df["exempt_total"] = compute_legal_exemptions(df)
 
-    # Non-taxable assets: art, vehicles, pension funds
+    # Non-taxable assets: art and vehicles
     non_taxable_assets = (
         df["p2_71"].fillna(0) + df["timpvehic"].fillna(0) + df["p2_84"].fillna(0)
     )
@@ -244,7 +246,7 @@ def apply_behavioral_response(df: pd.DataFrame) -> pd.DataFrame:
 
 def simulate_migration_attrition(
     df: pd.DataFrame,
-    wealth_threshold: float = 0.998,
+    wealth_threshold: float = 0.999,
     base_migration_prob: float = 0.02,
     elasticity: float = 1.76,
 ) -> pd.DataFrame:
@@ -454,6 +456,8 @@ def main():
 
     print("Share of total cap relief received by typology:")
     print(relief_by_typology)
+
+    #df = plot_revenue_decomposition(df)
 
 
 

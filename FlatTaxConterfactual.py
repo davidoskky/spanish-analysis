@@ -17,6 +17,17 @@ from constants import (
 from dta_handling import load_data
 from eff_typology import assign_typology
 from preprocessing import individual_split
+from reporting import (
+    summarize_cap_and_tax_shares,
+    report_effective_tax_rates,
+    typology_impact_summary,
+    generate_summary_table2,
+    compute_inequality_metrics,
+    payer_coverage,
+    loss_breakdown,
+    plot_revenue_decomposition,
+)
+from wealth_tax import simulate_household_wealth_tax
 
 # Set simulation parameters for sensitivity analysis, when setting true is a sensitivity analysis
 USE_FLAT_TAX = True  # Flat 1% rate on taxable wealth
@@ -75,18 +86,6 @@ def simulate_pit_liability(df: pd.DataFrame, correction_top1=0.15, weight_col="f
 
     print(f"Total PIT (before correction):  €{total_pit:,.2f}")
     return df
-
-from reporting import (
-    summarize_cap_and_tax_shares,
-    report_effective_tax_rates,
-    typology_impact_summary,
-    generate_summary_table2,
-    compute_inequality_metrics,
-    payer_coverage,
-    loss_breakdown,
-)
-from wealth_tax import simulate_household_wealth_tax, simulate_pit_liability2
-
 
 def apply_wealth_tax_income_cap(
     df: pd.DataFrame, income_cap_rate: float = 0.60, min_wealth_tax_share: float = 0.20
@@ -447,6 +446,8 @@ def main():
 
     print("Share of total cap relief received by typology:")
     print(relief_by_typology)
+
+    df = plot_revenue_decomposition(df)
 
 
 

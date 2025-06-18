@@ -245,3 +245,35 @@ def loss_breakdown(df: pd.DataFrame, weight_col="facine3") -> None:
     print(f"Cap loss:      {avg['Cap Loss'] / avg['Gross']:.1%} of gross")
     print(f"Regional loss: {avg['Regional Loss'] / avg['Gross']:.1%}")
     print(f"Behavioural:   {avg['Behavioral Loss'] / avg['Gross']:.1%}")
+
+import matplotlib.pyplot as plt
+
+def plot_revenue_decomposition(df: pd.DataFrame, weight_col="facine3") -> None:
+    plt.style.use('bmh') 
+    def revenue_components(g):
+        w = g[weight_col]
+        return pd.Series({
+            "Before Erosion": (g["sim_tax_original"] * w).sum(),
+            "After Behavior": (g["tax_afterBR"] * w).sum(),
+            "After Cap": (g["final_tax"] * w).sum(),
+            "After Regional": (g["adjusted_final_tax"] * w).sum()
+        })
+
+    summary = df.groupby("imputation").apply(revenue_components).mean()
+
+    stages = ["Before Erosion", "After Behavior", "After Cap", "After Regional"]
+    values = [summary[stage] / 1e9 for stage in stages]  # In € billions
+
+    fig, ax = plt.subplots(figsize=(9, 6))
+    bars = ax.bar(stages, values, color=["#5f8fef", "#8cd3f7e7", "#80edd6d2", "#a9e7c4d1"])
+
+    ax.set_ylabel("Revenue (€ billions)")
+    ax.set_title("Breakdown of Wealth Tax Revenue by Erosion Stage", fontsize=14)
+    ax.set_ylim(0, max(values) * 1.1)
+
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2, height + 0.1, f"{height:.2f}", ha="center", va="bottom")
+
+    plt.tight_layout()
+    plt.show()

@@ -1,4 +1,6 @@
 from constants import Num_Workers, Net_Wealth, Income, Primary_Residence, Business_Value
+from dta_handling import load_data
+import pandas as pd
 
 
 def individual_split(df):
@@ -38,3 +40,4 @@ def apply_valuation_manipulation(df, real_estate_discount=0.15, business_discoun
     df[Primary_Residence] = df[Primary_Residence] * (1 - real_estate_discount)
     df[Business_Value] = df[Business_Value] * (1 - business_discount)
     return df
+
