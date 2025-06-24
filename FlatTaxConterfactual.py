@@ -73,7 +73,6 @@ def simulate_pit_liability(df: pd.DataFrame, correction_top1=0.15, weight_col="f
     """
     df = df.copy()
 
-    # Personal allowance (2022): €5,550 per taxpayer
     personal_allowance = 5550
     taxable_income = np.maximum(df[income_col] - personal_allowance, 0)
 
@@ -81,7 +80,6 @@ def simulate_pit_liability(df: pd.DataFrame, correction_top1=0.15, weight_col="f
         lambda amount: calculate_tax_liability(amount, SPANISH_PIT_2022_BRACKETS)
     )
 
-    # Show PIT before correction for context
     total_pit = (df["pit_liability"] * df[weight_col]).sum()
 
     print(f"Total PIT (before correction):  €{total_pit:,.2f}")
@@ -250,15 +248,13 @@ def apply_behavioral_response(df: pd.DataFrame) -> pd.DataFrame:
 
     df["behavioral_elasticity"] = df["wealth_rank"].apply(assign_elasticity)
 
-    
-    # Reuse or recompute marginal tax rate
+
     df["top_marginal_rate"] = df["taxable_wealth"].apply(
         lambda x: get_top_marginal_tax(x, PROGRESSIVE_TAX_BRACKETS)
     )
 
-    # Erosion factor based on: e * t
     erosion_fraction = df["behavioral_elasticity"] * df["top_marginal_rate"]
-    erosion_fraction = erosion_fraction.clip(upper=0.70)  # cap at 95% erosion
+    erosion_fraction = erosion_fraction.clip(upper=0.70)
 
     df["erosion_factor"] = 1 - erosion_fraction
     df["taxable_wealth_eroded"] = df["taxable_wealth"] * df["erosion_factor"]
@@ -294,11 +290,8 @@ def simulate_migration_attrition(
 
     net_of_tax = 1 - df["final_tax"] / (df[wealth_col] + 1e-6)
 
-    # migration probability using exponential behavioral model ---
-    # Based on stock elasticity to net-of-tax rate
     exit_prob = base_migration_prob * np.exp(elasticity * (1 - net_of_tax))
 
-    # TODO: Check whether it is correct that the probability applies to the whole population and not just to the top wealth group
     top_wealth_group = df["wealth_rank"] > wealth_threshold
     will_migrate = (np.random.rand(len(df)) < exit_prob) & top_wealth_group
 
@@ -355,15 +348,12 @@ def compute_weighted_wealth_rank(df, wealth_col=wealth_col, weight_col="facine3"
     for imp in df["imputation"].unique():
         sub_df = df[df["imputation"] == imp].copy()
 
-        # Normalize weights within implicate to represent a consistent total (e.g. national total)
         total_weight = sub_df[weight_col].sum()
         sub_df["scaled_weight"] = sub_df[weight_col] / total_weight
 
-        # Sort by wealth
         sub_df = sub_df.sort_values(by=wealth_col, kind="mergesort").reset_index(drop=True)
         sub_df["cum_weight"] = sub_df["scaled_weight"].cumsum()
 
-        # Wealth rank is the cumulative population share
         sub_df["wealth_rank"] = sub_df["cum_weight"]
 
         result.append(sub_df)
@@ -376,56 +366,45 @@ def main():
     np.random.seed(42)
 
     df = load_data()
-    
     check_valid_input_data(df)
 
     df = assign_typology(df)
     df = compute_weighted_wealth_rank(df, wealth_col, "facine3")
 
     if USE_FLAT_TAX:
-     df = simulate_flat_wealth_tax(df)
-    else:
-        df = simulate_household_wealth_tax(df, exemption_amount=700_000)
+        print("Running static flat tax scenario (no behavioral response)")
+        df = simulate_flat_wealth_tax(df)
 
-    df["sim_tax_original"] = df["sim_tax"]
-    
-    df["top_marginal_rate"] = df["taxable_wealth"].apply(
-    lambda x: get_top_marginal_tax(x, PROGRESSIVE_TAX_BRACKETS)
-)
-
-    df = apply_behavioral_response(df)
-    df = recalculate_wealth_tax_on_eroded_base(df)
-    df = simulate_pit_liability(df)
-    df = apply_wealth_tax_income_cap(df)
-    df = simulate_migration_attrition(df)
-
-    if not USE_FLAT_TAX:
-        df = apply_behavioral_response(df)
-        df = recalculate_wealth_tax_on_eroded_base(df)
-        df = simulate_migration_attrition(df)
-    else:
         df["tax_afterBR"] = df["sim_tax"]
         df["final_tax"] = df["sim_tax"]
         df["taxable_wealth_eroded"] = df["taxable_wealth"]
         df["Migration_Exit"] = False
 
+    else:
+        print("Running progressive wealth tax scenario with behavioral response")
+        df = simulate_household_wealth_tax(df, exemption_amount=700_000)
+
+        df = apply_behavioral_response(df)
+        df = recalculate_wealth_tax_on_eroded_base(df)
+
+        df["tax_afterBR"] = df["tax_afterBR"] 
+        df["final_tax"] = df["tax_afterBR"]
+
+        df = simulate_migration_attrition(df)
+
+    df = simulate_pit_liability(df)
+
+    df = apply_wealth_tax_income_cap(df)
+
+
     df = apply_regional_tax_adjustments(df)
+
     generate_summary_table2(df)
     typology_impact_summary(df)
-
-    # Plots
-    # plot_tax_rate_by_wealth(df)
-    # plot_cap_relief_by_income(df)
-
     df = compute_effective_tax_rates(df)
     report_effective_tax_rates(df)
     summarize_cap_and_tax_shares(df)
-
-    df["wealth_after_cap"] = df[wealth_col] - df["final_tax"].fillna(0)
-    df["wealth_after_no_cap"] = df[wealth_col] - df["tax_afterBR"].fillna(0)
-
     df = compute_net_wealth_post_tax(df)
-
     compute_inequality_metrics(df)
     payer_coverage(df)
     loss_breakdown(df)
@@ -438,18 +417,15 @@ def main():
     print(f"Average relief per capita (weighted): €{avg_relief:,.2f}")
 
     df["weighted_relief"] = df["cap_relief"] * df["facine3"]
-
     relief_by_typology = (
-    df.groupby("mismatch_type")["weighted_relief"].sum()
-    / (df["cap_relief"] * df["facine3"]).sum()
-)
+        df.groupby("mismatch_type")["weighted_relief"].sum()
+        / (df["cap_relief"] * df["facine3"]).sum()
+    )
 
     print("Share of total cap relief received by typology:")
     print(relief_by_typology)
 
     df = plot_revenue_decomposition(df)
-
-
 
 
 if __name__ == "__main__":

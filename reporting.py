@@ -41,7 +41,6 @@ def summarize_cap_and_tax_shares(df):
             "Tax_Top01": top01_tax / total_final_tax if total_final_tax > 0 else np.nan,
         })
 
-    # Convert to DataFrame and average over implicates
     summary_df = pd.DataFrame(results)
     mean_shares = summary_df.mean()
 
@@ -97,7 +96,7 @@ def report_effective_tax_rates(df):
     return df
 
 def typology_impact_summary(df, weight_col="facine3"):
-    # Compute stats per implicate
+
     grouped = df.groupby(["imputation", "mismatch_type"])
 
     result = grouped.apply(
@@ -110,11 +109,9 @@ def typology_impact_summary(df, weight_col="facine3"):
  })
     ).reset_index()
 
-    # Normalize population share within each implicate
     total_pop_weight = result.groupby("imputation")["Population Share"].transform("sum")
     result["Population Share"] /= total_pop_weight
 
-    # Average across implicates
     final = result.groupby("mismatch_type").mean().reset_index()
 
     print("\n--- Typology Impact Table (averaged over implicates) ---")
@@ -141,16 +138,13 @@ def gini(values, weights=None):
     else:
         weights = np.asarray(weights)
 
-    # Sort by values
     sorted_idx = np.argsort(values)
     sorted_values = values[sorted_idx]
     sorted_weights = weights[sorted_idx]
 
-    # Compute cumulative values and weights
     cumw = np.cumsum(sorted_weights)
     cumxw = np.cumsum(sorted_values * sorted_weights)
 
-    # Relative mean difference (Gini formula)
     gini_numerator = np.sum(sorted_weights * (cumxw - sorted_values * sorted_weights / 2))
     gini_denominator = cumxw[-1] * cumw[-1]
     
@@ -174,7 +168,6 @@ def compute_inequality_metrics(df, weight_col="facine3"):
         }
         implicate_metrics.append(result)
 
-    # Convert to DataFrame and average across implicates
     metric_df = pd.DataFrame(implicate_metrics)
     avg_metrics = metric_df.mean().to_dict()
 
@@ -262,7 +255,7 @@ def plot_revenue_decomposition(df: pd.DataFrame, weight_col="facine3") -> None:
     summary = df.groupby("imputation").apply(revenue_components).mean()
 
     stages = ["Before Erosion", "After Behavior", "After Cap", "After Regional"]
-    values = [summary[stage] / 1e9 for stage in stages]  # In € billions
+    values = [summary[stage] / 1e9 for stage in stages]
 
     fig, ax = plt.subplots(figsize=(9, 6))
     bars = ax.bar(stages, values, color=["#5f8fef", "#8cd3f7e7", "#80edd6d2", "#a9e7c4d1"])

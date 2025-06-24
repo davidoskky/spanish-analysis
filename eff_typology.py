@@ -11,12 +11,11 @@ def assign_typology(df):
     - Income-rich = top 20% (>= 80th percentile)
     - Income-poor = bottom 60% (< 60th percentile)
     """
-    # Compute percentile ranks
+
     df = df.copy()
     df["wealth_percentile"] = df["riquezanet"].rank(pct=True)
     df["income_percentile"] = df["renthog21_eur22"].rank(pct=True)
 
-    # Classify mismatch typology
     def classify(row):
         w = row["wealth_percentile"]
         i = row["income_percentile"]
@@ -42,7 +41,6 @@ def get_typology_statistics(df):
     print("\nWeighted population share by mismatch type:")
     print(shares)
 
-    # Average wealth and income by mismatch type
     summary_stats = df.groupby("mismatch_type").apply(
         lambda x: pd.Series(
             {
@@ -62,7 +60,6 @@ def get_typology_wealth_percentile(df):
     and calculates the weighted distribution of mismatch types across them.
     """
 
-    # Copy and assign custom percentile bins
     df = df.copy()
     labels = {
         1: "< P20",
@@ -73,7 +70,6 @@ def get_typology_wealth_percentile(df):
         6: "> P90"
     }
 
-    # Create bins
     df["wealth_bin_code"] = pd.cut(
         df["wealth_percentile"],
         bins=[0.0, 0.2, 0.4, 0.6, 0.8, 0.9, 1.0],
@@ -83,12 +79,11 @@ def get_typology_wealth_percentile(df):
 
     df["wealth_bin"] = df["wealth_bin_code"].map(labels)
 
-    # Weighted distribution table
     table = (
         df.groupby(["mismatch_type", "wealth_bin"])["facine3"]
         .sum()
         .groupby(level=0)
-        .apply(lambda x: 100 * x / x.sum())  # within mismatch type
+        .apply(lambda x: 100 * x / x.sum())
         .unstack()
         .fillna(0)
         .round(2)
@@ -106,16 +101,14 @@ def income_distribution_by_wealth(df):
     Create a weighted cross-tab of income bins within each wealth bin (percrent vs. percriq)
     """
 
-    # Ensure categorical columns
     df["percriq"] = df["percriq"].astype(str)
     df["percrent"] = df["percrent"].astype(str)
 
-    # Weighted crosstab: share of each income bin within each wealth bin
     cross_tab = (
         df.groupby(["percrent", "percriq"])["facine3"]
         .sum()
         .groupby(level=0)
-        .apply(lambda x: 100 * x / x.sum())  # % within each wealth group
+        .apply(lambda x: 100 * x / x.sum()) 
         .unstack()
         .fillna(0)
         .round(2)

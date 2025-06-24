@@ -34,7 +34,7 @@ from wealth_tax import simulate_household_wealth_tax
 # Set simulation parameters for sensitivity analysis, when setting true is a sensitivity analysis
 USE_INDIVIDUAL = False  # Set to False to run household-level model, or set to True for individual-level(sensitivity analysis)
 LOWER_BEHAVIOURAL_RESPONSE = False
-NO_REGIONAL_EROSION = True
+NO_REGIONAL_EROSION = False
 wealth_col = "netwealth_individual" if USE_INDIVIDUAL else Net_Wealth
 income_col = "income_individual" if USE_INDIVIDUAL else Income
 
@@ -51,7 +51,6 @@ def compute_legal_exemptions(df):
     before applying any tax rates.
     """
 
-    # Primary residence exemption
     owns_home = df[Residence_Ownership] == "Ownership"
     primary_home_val = df[Primary_Residence].fillna(0)
     exempt_home_value = np.where(owns_home, np.minimum(primary_home_val, 300_000), 0)
@@ -77,7 +76,6 @@ def simulate_pit_liability(df: pd.DataFrame, correction_top1=0.15, weight_col="f
     """
     df = df.copy()
 
-    # Personal allowance (2022): €5,550 per taxpayer
     personal_allowance = 5550
     taxable_income = np.maximum(df[income_col] - personal_allowance, 0)
 
@@ -85,7 +83,6 @@ def simulate_pit_liability(df: pd.DataFrame, correction_top1=0.15, weight_col="f
         lambda amount: calculate_tax_liability(amount, SPANISH_PIT_2022_BRACKETS)
     )
 
-    # Show PIT before correction for context
     total_pit = (df["pit_liability"] * df[weight_col]).sum()
 
     print(f"Total PIT (before correction):  €{total_pit:,.2f}")
@@ -189,8 +186,6 @@ def get_top_marginal_tax(amount, brackets):
             return rate
     return 0.0
 
-
-
 def recalculate_wealth_tax_on_eroded_base(df: pd.DataFrame) -> pd.DataFrame:
     """
     Recompute sim_tax using taxable_wealth_eroded instead of the original base.
@@ -227,13 +222,11 @@ def apply_behavioral_response(df: pd.DataFrame) -> pd.DataFrame:
 
     df["behavioral_elasticity"] = df["wealth_rank"].apply(assign_elasticity)
 
-    
-    # Reuse or recompute marginal tax rate
+
     df["top_marginal_rate"] = df["taxable_wealth"].apply(
         lambda x: get_top_marginal_tax(x, PROGRESSIVE_TAX_BRACKETS)
     )
 
-    # Erosion factor based on: e * t
     erosion_fraction = df["behavioral_elasticity"] * df["top_marginal_rate"]
     erosion_fraction = erosion_fraction.clip(upper=0.70) 
 
@@ -243,7 +236,6 @@ def apply_behavioral_response(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
  
-
 def simulate_migration_attrition(
     df: pd.DataFrame,
     wealth_threshold: float = 0.999,
@@ -271,11 +263,8 @@ def simulate_migration_attrition(
 
     net_of_tax = 1 - df["final_tax"] / (df[wealth_col] + 1e-6)
 
-    # migration probability using exponential behavioral model ---
-    # Based on stock elasticity to net-of-tax rate
     exit_prob = base_migration_prob * np.exp(elasticity * (1 - net_of_tax))
 
-    # TODO: Check whether it is correct that the probability applies to the whole population and not just to the top wealth group
     top_wealth_group = df["wealth_rank"] > wealth_threshold
     will_migrate = (np.random.rand(len(df)) < exit_prob) & top_wealth_group
 
@@ -284,7 +273,6 @@ def simulate_migration_attrition(
 
 
     return df
-
 
 def apply_regional_tax_adjustments(
     df: pd.DataFrame, tax_reduction: float = 0.1
@@ -299,7 +287,6 @@ def apply_regional_tax_adjustments(
     df["adjusted_final_tax"] = df["final_tax"] * adjustment_factor
 
     return df
-
 
 def compute_effective_tax_rates(df):
     df = df.copy()
@@ -332,15 +319,12 @@ def compute_weighted_wealth_rank(df, wealth_col=wealth_col, weight_col="facine3"
     for imp in df["imputation"].unique():
         sub_df = df[df["imputation"] == imp].copy()
 
-        # Normalize weights within implicate to represent a consistent total (e.g. national total)
         total_weight = sub_df[weight_col].sum()
         sub_df["scaled_weight"] = sub_df[weight_col] / total_weight
 
-        # Sort by wealth
         sub_df = sub_df.sort_values(by=wealth_col, kind="mergesort").reset_index(drop=True)
         sub_df["cum_weight"] = sub_df["scaled_weight"].cumsum()
 
-        # Wealth rank is the cumulative population share
         sub_df["wealth_rank"] = sub_df["cum_weight"]
 
         result.append(sub_df)
@@ -348,6 +332,40 @@ def compute_weighted_wealth_rank(df, wealth_col=wealth_col, weight_col="facine3"
     df_ranked = pd.concat(result, ignore_index=True)
     return df_ranked
 
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+def plot_wealth_distribution(df):
+    """
+    Plots average wealth by predefined wealth percentile group (percrent).
+    """
+    grouped = df.groupby("percrent").apply(
+        lambda x: pd.Series({
+            "mean_wealth": np.average(x["riquezanet"], weights=x["facine3"]),
+            "population_share": x["facine3"].sum() / df["facine3"].sum()
+        })
+    ).reset_index()
+
+    bin_order = ["< P20", "P20-P40", "P40-P60", "P60-80", "P80-P90", "> P90"]
+    grouped["percrent"] = pd.Categorical(grouped["percrent"], categories=bin_order, ordered=True)
+    grouped = grouped.sort_values("percrent")
+
+    # Plot
+    fig, ax1 = plt.subplots(figsize=(10, 6))
+
+    sns.barplot(data=grouped, x="percrent", y="mean_wealth", ax=ax1, color="#5DA5DA")
+    ax1.set_ylabel("Mean Net Wealth (€)", fontsize=12)
+    ax1.set_xlabel("Wealth Percentile Group", fontsize=12)
+    ax1.set_title("Wealth Distribution by Wealth Percentile Group", fontsize=14)
+    ax1.grid(axis='y', linestyle='--', alpha=0.5)
+
+    # Optional: Annotate bars
+    for i, row in grouped.iterrows():
+        ax1.text(i, row["mean_wealth"] + 5000, f"€{row['mean_wealth']:,.0f}", 
+                 ha='center', va='bottom', fontsize=9)
+
+    plt.tight_layout()
+    plt.show()
 
 def main():
     np.random.seed(42)
@@ -422,10 +440,6 @@ def main():
 
     generate_summary_table2(df)
     typology_impact_summary(df)
-
-    # Plots
-    # plot_tax_rate_by_wealth(df)
-    # plot_cap_relief_by_income(df)
 
     df = compute_effective_tax_rates(df)
     report_effective_tax_rates(df)

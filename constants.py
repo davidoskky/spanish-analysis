@@ -18,7 +18,6 @@ SIM_TAX_COL = "sim_tax"
 INCOME_COL = "income_individual"
 PIT_LIABILITY_COL = "pit_liability"
 
-# Data
 SPANISH_PIT_2022_BRACKETS = [
     (0, 12_450, 0.19),
     (12_450.01, 20_200, 0.24),
